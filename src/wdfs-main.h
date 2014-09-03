@@ -1,6 +1,8 @@
 #ifndef WDFSMAIN_H_
 #define WDFSMAIN_H_
 
+#define FUSE_USE_VERSION 25
+
 #include <fuse.h>
 #include <ne_basic.h>
 

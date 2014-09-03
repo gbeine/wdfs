@@ -21,29 +21,6 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-/* use package name and version from config.h, if the file is available. */
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#define PROJECT_NAME PACKAGE_NAME"/"VERSION
-#else
-#define PROJECT_NAME "wdfs/unknown-version"
-#endif
-
-#define FUSE_USE_VERSION 25
-
-/* build the fuse version, only needed by fuse 2.3 and earlier */
-#ifndef FUSE_VERSION
-  #define FUSE_MAKE_VERSION(maj, min)  ((maj) * 10 + (min))
-  #define FUSE_VERSION FUSE_MAKE_VERSION(FUSE_MAJOR_VERSION, FUSE_MINOR_VERSION)
-#endif
-
-#if FUSE_VERSION < 25
-  /* include is needed for the definition of uintptr_t,
-   * fuse 2.5 and later export it thru fuse_common.h */
-  #include <stdint.h>
-#endif
-
-#include <fuse.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +38,27 @@
 #include "webdav.h"
 #include "cache.h"
 #include "svn.h"
+
+
+/* use package name and version from config.h, if it is available. */
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#define PROJECT_NAME PACKAGE_NAME"/"VERSION
+#else
+#define PROJECT_NAME "wdfs/unknown-version"
+#endif
+
+/* build the fuse version; only needed by fuse 2.3 and earlier */
+#ifndef FUSE_VERSION
+  #define FUSE_MAKE_VERSION(maj, min)  ((maj) * 10 + (min))
+  #define FUSE_VERSION FUSE_MAKE_VERSION(FUSE_MAJOR_VERSION, FUSE_MINOR_VERSION)
+#endif
+
+#if FUSE_VERSION < 25
+  /* include is needed for the definition of uintptr_t,
+   * fuse 2.5 and later export it thru fuse_common.h */
+  #include <stdint.h>
+#endif
 
 
 /* if set to "true" wdfs specific debug output is generated. default is "false".
@@ -97,7 +95,7 @@ int lock_timeout = 300;
  * on open()ing it and unlocks it on close()ing the file. the advanced mode 
  * prevents data curruption by locking the file on open() and holds the lock 
  * until the file was writen and closed or the lock timed out. the eternity 
- * mode holds the lock until the fs is unmounted or the lock timed out.      */
+ * mode holds the lock until wdfs is unmounted or the lock times out.        */
 #define SIMPLE_LOCK 1
 #define ADVANCED_LOCK 2
 #define ETERNITY_LOCK 3

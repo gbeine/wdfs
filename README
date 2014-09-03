@@ -21,10 +21,11 @@ features:
 
 
 dependencies:
+ - operating systems: linux (with kernel 2.4 or 2.6) or freebsd (6.x or 7.x)
  - fuse (filesystem in userspace) v2.3 or later (http://fuse.sourceforge.net/)
    fuse v2.5 or later and linux kernel 2.6.15 or later are recommended.
  - neon webdav library v0.24.7 or later (http://www.webdav.org/neon/)
-   wdfs is _not_ yet compatible with the neon 0.26 series!
+   wdfs is _not_ (yet) compatible with the neon 0.26 series!
 
 
 installation:
