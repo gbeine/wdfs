@@ -85,9 +85,10 @@ source code conventions:
 
 version number conventions:
  - the major number will never change. only for a complete rewrite. ;-)
- - the minor number changes if new features are introduced.
-   warning: this may include backwards-incompatible changes!
- - the last number changes on bugfixes and little changes.
+ - the minor number changes if new features are introduced or 
+   if something api related is changed.
+   warning: this may include backward-incompatible changes!
+ - the last number changes on bug fixes and little non-api changes.
    e.g. v1.1.0 introduced new features from it's predecessor v1.0.1
 
 
