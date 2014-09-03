@@ -89,8 +89,7 @@ static int verify_ssl_certificate(
 	char *issued_by = ne_ssl_readable_dname(ne_ssl_cert_issuer(certificate));
 	printf(" issued to: %s\n", issued_to);
 	printf(" issued by: %s\n", issued_by);
-	NE_FREE(issued_to);
-	NE_FREE(issued_by);
+	free_chars(&issued_to, &issued_by, NULL);
 
 	/* don't prompt the user if the parameter "-ac" was passed to wdfs */
 	if (accept_certificate == true)
@@ -99,7 +98,7 @@ static int verify_ssl_certificate(
 	/* prompt the user wether he/she wants to accept this certificate */
 	int answer;
 	while (1) {
-		printf(" do you wish to accept the certificate? (y/n) ");
+		printf(" do you wish to accept this certificate? (y/n) ");
 		answer = getchar();
 		/* delete the input buffer (if the char is not a newline) */
 		if (answer != '\n')
@@ -163,15 +162,15 @@ int setup_webdav_session(
 
 	/* init ssl if needed */
 	if (!strcasecmp(uri.scheme, "https")) {
-#ifdef NE_FEATURE_SSL /* true for neon >= 0.25.0 */
+#if NEON_VERSION >= 25
 		if (ne_has_support(NE_FEATURE_SSL)) {
 #else
 		if (ne_supports_ssl()) {
-#endif		
+#endif
 			ne_ssl_trust_default_ca(session);
 			ne_ssl_set_verify(session, verify_ssl_certificate, &uri);
 		} else {
-			printf("## neon ssl support is not enabled.\n");
+			printf("## error: neon ssl support is not enabled.\n");
 			ne_session_destroy(session);
 			ne_uri_free(&uri);
 			return -1;
@@ -196,7 +195,7 @@ int setup_webdav_session(
 			const ne_uri *new_uri = ne_redirect_location(session);
 			char *new_uri_string = ne_uri_unparse(new_uri);
 			printf(" to '%s'", new_uri_string);
-			NE_FREE(new_uri_string);
+			FREE(new_uri_string);
 		}
 		printf(".\n");
 		ne_session_destroy(session);
@@ -246,8 +245,7 @@ static struct ne_lock* get_lock_by_path(const char *remotepath)
 	lock = ne_lockstore_findbyuri(store, &uri);
 
 	/* ne_fill_server_uri() malloc()d these fields, time to free them */
-	NE_FREE(uri.scheme);
-	NE_FREE(uri.host);
+	free_chars(&uri.scheme, &uri.host, NULL);
 
 	return lock;
 }

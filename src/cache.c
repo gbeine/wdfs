@@ -177,7 +177,7 @@ void cache_add_item(struct stat *stat, const char *remotepath)
 
 	if (debug_mode == true)
 		printf("** added cache item for '%s'\n", remotepath2);
-	NE_FREE(remotepath2);
+	FREE(remotepath2);
 }
 
 
@@ -185,6 +185,8 @@ void cache_add_item(struct stat *stat, const char *remotepath)
 void cache_delete_item(const char *remotepath)
 {
 	assert(remotepath);
+
+	/* generalize string by removing the ending slash */
 	char *remotepath2 = remove_ending_slash(remotepath);
 
 	/* to avoid conflict with cache_control_thread() lock */
@@ -197,7 +199,7 @@ void cache_delete_item(const char *remotepath)
 			printf("** removed cache item for '%s'\n", remotepath2);
 	}
 	pthread_mutex_unlock(&cache_mutex);
-	NE_FREE(remotepath2);
+	FREE(remotepath2);
 }
 
 
@@ -208,7 +210,15 @@ int cache_get_item(struct stat *stat, const char *remotepath)
 {
 	int ret = -1;
 	assert(remotepath && stat);
-	char *remotepath2 = remove_ending_slash(remotepath);
+
+	/* generalize the path by removing an ending slash and unescaping it */
+	char *remotepath_tmp = remove_ending_slash(remotepath);
+	char *remotepath2 = ne_path_unescape(remotepath_tmp);
+	FREE(remotepath_tmp);
+	if (remotepath2 == NULL) {
+		printf("## ne_path_unescape() error in %s()!\n", __func__);
+		return -1;
+	}
 
 	/* to avoid conflict with cache_control_thread() lock */
 	pthread_mutex_lock(&cache_mutex);
@@ -233,7 +243,7 @@ int cache_get_item(struct stat *stat, const char *remotepath)
 		if (debug_mode == true)
 			printf("** <no> cache hit for '%s'\n", remotepath2);
 	}
-	NE_FREE(remotepath2);
+	FREE(remotepath2);
 	return ret;
 }
 

@@ -102,7 +102,11 @@ static const ne_propname property_vcc[] = {
 
 /* this function extracts the revision number from a string */
 static void svn_get_latest_revision_callback(
+#if NEON_VERSION >= 26
+	void *userdata, const ne_uri* href_uri, const ne_prop_result_set *results)
+#else
 	void *userdata, const char *href, const ne_prop_result_set *results)
+#endif
 {
 	assert(userdata && results);
 
@@ -136,7 +140,7 @@ static void svn_get_latest_revision_callback(
 	/* string to integer conversion */
 	*latest_revision = atoi(latest_revision_string);
 
-	NE_FREE(latest_revision_string);
+	FREE(latest_revision_string);
 }
 
 
@@ -149,7 +153,7 @@ static int svn_get_latest_revision()
 	int ret = ne_propfind_named(pfh, property_checked_in,
 					&svn_get_latest_revision_callback, &latest_revision);
 	ne_propfind_destroy(pfh);
-	NE_FREE(uri);
+	FREE(uri);
 	if (ret != NE_OK) {
 		printf("## ne_propfind_named() error\n");
 		return -1;
@@ -189,7 +193,11 @@ static int get_integer_length(int in)
 
 /* callback from svn_set_repository_root() to do the dirty string parsing. */
 static void svn_set_repository_root_callback(
+#if NEON_VERSION >= 26
+	void *userdata, const ne_uri* href_uri, const ne_prop_result_set *results)
+#else
 	void *userdata, const char *href, const ne_prop_result_set *results)
+#endif
 {
 	assert(results);
 
@@ -232,7 +240,7 @@ int svn_set_repository_root() {
 }
 
 void svn_free_repository_root() {
-	NE_FREE(svn_repository_root);
+	FREE(svn_repository_root);
 }
 
 
@@ -256,8 +264,8 @@ char* svn_get_remotepath(const char *localpath)
 		return NULL;
 	/* finally escape the string */
 	char *remotepath2 = ne_path_escape(remotepath);
-	NE_FREE(remotepath);
-	if (remotepath2 == NULL) 	
+	FREE(remotepath);
+	if (remotepath2 == NULL)
 		return NULL;
 	return remotepath2;
 }
@@ -267,12 +275,12 @@ char* svn_get_remotepath(const char *localpath)
 struct stat svn_get_static_dir_stat()
 {
 	struct stat stat;
-	stat.st_mode		= S_IFDIR | 0777; 
+	stat.st_mode	= S_IFDIR | 0777; 
 	stat.st_size	= 4096;
 	stat.st_nlink	= 1;
 	stat.st_atime	= stat.st_mtime = stat.st_ctime = time(NULL);
 	stat.st_blocks	= (stat.st_size+511)/512;
-	stat.st_mode		&= ~umask(0);
+	stat.st_mode	&= ~umask(0);
 	stat.st_uid		= getuid();
 	stat.st_gid		= getgid();
 	return stat;
@@ -327,11 +335,11 @@ int svn_get_level1_stat(struct stat *stat, const char *localpath) {
 
 
 /* IN:  /svn_basedir/x-y/        (as string, x and y are revision numbers)
- * OUT: /svn_basedir/x-y/x/      (as level2-dentry, added with filler()-method)
- *      /svn_basedir/x-y/x+1/    (as level2-dentry, added with filler()-method)
- *      /svn_basedir/x-y/../     (as level2-dentry, added with filler()-method)
- *      /svn_basedir/x-y/y-1/    (as level2-dentry, added with filler()-method)
- *      /svn_basedir/x-y/y/      (as level2-dentry, added with filler()-method)
+ * OUT: /svn_basedir/x-y/x/      (as level2-dentry, added with filler method)
+ *      /svn_basedir/x-y/x+1/    (as level2-dentry, added with filler method)
+ *      /svn_basedir/x-y/../     (as level2-dentry, added with filler method)
+ *      /svn_basedir/x-y/y-1/    (as level2-dentry, added with filler method)
+ *      /svn_basedir/x-y/y/      (as level2-dentry, added with filler method)
  * returns 0 on success (added level2 directories) and 1 otherwise. */
 int svn_add_level2_directories(
 	struct dir_item *item_data, const char *localpath)
@@ -355,7 +363,7 @@ int svn_add_level2_directories(
 		int x = atoi(token);
 		token = strsep(&x_y, delimiters);
 		int y = atoi(token);
-		NE_FREE(pointer);
+		FREE(pointer);
 
 		GString *int2string = g_string_new_len("", get_integer_length(y));
 		int i;

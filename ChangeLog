@@ -1,3 +1,69 @@
+2006-07-26  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.3.0
+
+2006-07-26  jens m. noedler  <noedler@web.de>
+
+	implemented dummy wdfs_chmod() method
+
+2006-07-26  jens m. noedler  <noedler@web.de>
+
+	fixed some escape/unescape problems
+
+2006-07-26  jens m. noedler  <noedler@web.de>
+
+	fix: invalid read in remove_ending_slash()
+
+2006-07-25  jens m. noedler  <noedler@web.de>
+
+	simplified #definition of NEON_VERSION
+
+2006-07-25  jens m. noedler  <noedler@web.de>
+
+	- do not allow lock_timeout to be set to 0 seconds
+	- fixed a bug regarding too late unescaping of the remotepath,
+	  what may lead to recursive adding of the directory to itself.
+
+2006-07-25  jens m. noedler  <noedler@web.de>
+
+	memory management: replaced wdfs_free() through FREE() and free_chars()
+
+2006-07-25  jens m. noedler  <noedler@web.de>
+
+2006-07-24  jens m. noedler  <noedler@web.de>
+
+	wdfs is now compatible to neon 0.26, thanks again to suse
+
+2006-07-21  jens m. noedler  <noedler@web.de>
+
+	type updates and conversion of error_parameter_parsing from int to bool_t
+
+2006-07-21  jens m. noedler  <noedler@web.de>
+
+	correct indentation and fix for "the last parameter parsing bug" ;-)
+
+2006-07-20  jens m. noedler  <noedler@web.de>
+
+	typo updates
+
+2006-07-20  jens m. noedler  <noedler@web.de>
+
+	conversion from NE_FREE(...) to wdfs_free(...)
+
+2006-07-20  jens m. noedler  <noedler@web.de>
+
+	enhanced argument handling, also based on suse patches
+
+2006-07-20  jens m. noedler  <noedler@web.de>
+
+	reset arguments to avoid storing sensitive data in the process table
+	based on a patch from max@suse.de
+
+2006-07-20  jens m. noedler  <noedler@web.de>
+
+	fix for 64 bit platforms due to missing braces
+	patch from max@suse.de, thanks!
+
 2006-06-27  jens m. noedler  <noedler@web.de>
 
 	added a comment about freebsd compat in the README

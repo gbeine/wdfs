@@ -1,9 +1,9 @@
-/* 
+/*
  *  this file is part of wdfs --> http://noedler.de/projekte/wdfs/
  *
  *  wdfs is a webdav filesystem with special features for accessing subversion
  *  repositories. it is based on fuse v2.3+ and neon v0.24.7+.
- * 
+ *
  *  copyright (c) 2005 - 2006 jens m. noedler, noedler@web.de
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -42,10 +42,10 @@
 
 /* use package name and version from config.h, if it is available. */
 #ifdef HAVE_CONFIG_H
-#include <config.h>
-#define PROJECT_NAME PACKAGE_NAME"/"VERSION
+  #include <config.h>
+  #define PROJECT_NAME PACKAGE_NAME"/"VERSION
 #else
-#define PROJECT_NAME "wdfs/unknown-version"
+  #define PROJECT_NAME "wdfs/unknown-version"
 #endif
 
 /* build the fuse version; only needed by fuse 2.3 and earlier */
@@ -125,14 +125,29 @@ static const ne_propname properties_fileattr[] = {
 /* +++ exported method +++ */
 
 
+/* free()s each char passed that is not NULL and sets it to NULL after freeing */
+void free_chars(char **arg, ...) {
+	va_list ap;
+	va_start(ap, arg);
+	while (arg) {
+		if (*arg != NULL)
+			free(*arg);
+		*arg = NULL;
+		/* get the next parameter */
+		arg = va_arg(ap, char **);
+	}
+	va_end(ap);
+}
+
+
 /* removes '/' if it's the last character. returns the new malloc()d string. */
 char* remove_ending_slash(const char *in)
 {
 	int length = strlen(in);
-	if (in[length - 1] == '/')
-		return (char*)strndup(in, length - 1);
+	if (length-1 >= 0  &&  in[length-1] == '/')
+		return (char *)strndup(in, length-1);
 	else
-		return (char*)strdup(in);
+		return (char *)strdup(in);
 }
 
 
@@ -147,7 +162,7 @@ static void print_debug_infos(const char *method, const char *parameter)
 	printf(">> %s(%s)\n", method, parameter);
 	char *useragent = ne_concat(project_name, " ", method, NULL);
 	ne_set_useragent(session, useragent);
-	NE_FREE(useragent);
+	FREE(useragent);
 }
 
 
@@ -159,7 +174,7 @@ static char* get_remotepath(const char *localpath)
 	if (remotepath == NULL)
 		return NULL;
 	char *remotepath2 = ne_path_escape(remotepath);
-	NE_FREE(remotepath);
+	FREE(remotepath);
 	if (remotepath2 == NULL)
 		return NULL;
 	return remotepath2;
@@ -197,7 +212,7 @@ static void set_stat(struct stat* stat, const ne_prop_result_set *results)
 	lastmodified	= ne_propset_value(results, &properties_fileattr[2]);
 	creationdate	= ne_propset_value(results, &properties_fileattr[3]);
 
-	/* webdav collection == directory entry */ 
+	/* webdav collection == directory entry */
 	if (resourcetype != NULL && !strstr("<collection", resourcetype)) {
 		stat->st_mode = S_IFDIR | 0777;
 		stat->st_size = 4096;
@@ -211,10 +226,10 @@ static void set_stat(struct stat* stat, const ne_prop_result_set *results)
 
 	stat->st_nlink	= 1;
 	stat->st_atime	= time(NULL);
-	
+
 	if (lastmodified != NULL)
 		stat->st_mtime = ne_rfc1123_parse(lastmodified);
-	else 
+	else
 		stat->st_mtime = 0;
 
 	if (creationdate != NULL)
@@ -242,7 +257,7 @@ static int handle_redirect(char **remotepath) {
 		print_debug_infos(__func__, *remotepath);
 
 	/* free the old value of remotepath, because it's no longer needed */
-	NE_FREE(*remotepath);
+	FREE(*remotepath);
 
 	/* get the current_uri and new_uri structs */
 	ne_uri current_uri;
@@ -251,14 +266,12 @@ static int handle_redirect(char **remotepath) {
 
 	if (strcasecmp(current_uri.host, new_uri->host)) {
 		printf("## error: wdfs does not support redirect to other hosts!\n");
-		NE_FREE(current_uri.host);
-		NE_FREE(current_uri.scheme);
+		free_chars(&current_uri.host, &current_uri.scheme, NULL);
 		return -1;
 	}
 
 	/* can't use ne_uri_free() here, because only host and scheme are mallocd */
-	NE_FREE(current_uri.host);
-	NE_FREE(current_uri.scheme);
+	free_chars(&current_uri.host, &current_uri.scheme, NULL);
 
 	/* set the new remotepath to the redirect target path */
 	*remotepath = ne_strdup(new_uri->path);
@@ -273,8 +286,17 @@ static int handle_redirect(char **remotepath) {
 /* this method is called by ne_simple_propfind() from wdfs_getattr() for a
  * specific file. it sets the file's attributes and and them to the cache. */
 static void wdfs_getattr_propfind_callback(
+#if NEON_VERSION >= 26
+	void *userdata, const ne_uri* href_uri, const ne_prop_result_set *results)
+#else
 	void *userdata, const char *remotepath, const ne_prop_result_set *results)
+#endif
+
 {
+#if NEON_VERSION >= 26
+	char *remotepath = ne_uri_unparse(href_uri);
+#endif
+
 	if (debug_mode == true)
 		print_debug_infos(__func__, remotepath);
 
@@ -285,6 +307,10 @@ static void wdfs_getattr_propfind_callback(
 
 	set_stat(stat, results);
 	cache_add_item(stat, remotepath);
+
+#if NEON_VERSION >= 26
+	FREE(remotepath);
+#endif
 }
 
 
@@ -341,12 +367,12 @@ static int wdfs_getattr(const char *localpath, struct stat *stat)
 		if (ret != NE_OK) {
 			printf("## PROPFIND error in %s(): %s\n",
 				__func__, ne_get_error(session));
-			NE_FREE(remotepath);
+			FREE(remotepath);
 			return -ENOENT;
 		}
 	}
 
-	NE_FREE(remotepath);
+	FREE(remotepath);
 	return 0;
 }
 
@@ -354,10 +380,21 @@ static int wdfs_getattr(const char *localpath, struct stat *stat)
 /* this method is called by ne_simple_propfind() from wdfs_readdir() for each 
  * member (file) of the requested collection. this method extracts the file's
  * attributes from the webdav response, adds it to the cache and calls the fuse
- * filler() method to add the file to the requested directory. */
+ * filler method to add the file to the requested directory. */
 static void wdfs_readdir_propfind_callback(
-	void *userdata, const char *remotepath, const ne_prop_result_set *results)
+#if NEON_VERSION >= 26
+	void *userdata, const ne_uri* href_uri, const ne_prop_result_set *results)
+#else
+	void *userdata, const char *remotepath0, const ne_prop_result_set *results)
+#endif
+
 {
+#if NEON_VERSION >= 26
+	char *remotepath = ne_uri_unparse(href_uri);
+#else
+	char *remotepath = strdup(remotepath0);
+#endif
+
 	if (debug_mode == true)
 		print_debug_infos(__func__, remotepath);
 
@@ -365,8 +402,18 @@ static void wdfs_readdir_propfind_callback(
 	assert(item_data);
 
 	/* remove ending slash to be able to compare the strings */
-	char *tmp_remotepath  = remove_ending_slash(remotepath);
-	char *tmp_remotepath2 = remove_ending_slash(item_data->remotepath);
+	char *remotepath_tmp1 = remove_ending_slash(remotepath);
+	char *remotepath_tmp2 = remove_ending_slash(item_data->remotepath);
+
+	/* unescape the paths to be able to compare the strings */
+	char *remotepath1 = ne_path_unescape(remotepath_tmp1);
+	char *remotepath2 = ne_path_unescape(remotepath_tmp2);
+	free_chars(&remotepath_tmp1, &remotepath_tmp2, NULL);
+	if (remotepath1 == NULL || remotepath2 == NULL) {
+		free_chars(&remotepath, &remotepath1, &remotepath2, NULL);
+		printf("## ne_path_unescape() error in %s()!\n", __func__);
+		return;
+	}
 
 	/* some servers send the complete URI in 'char *remotepath' not only the 
 	 * path. so we remove the server part and use only the path.
@@ -374,41 +421,31 @@ static void wdfs_readdir_propfind_callback(
 	 *            after:  "/path/to/hell/"
 	 * example2:  before: "http://server.com"
 	 *            after:  ""                                                 */
-	if (g_str_has_prefix(tmp_remotepath, "http")) {
-		char *tmp0 = strdup(tmp_remotepath);
-		NE_FREE(tmp_remotepath);
+	if (g_str_has_prefix(remotepath1, "http")) {
+		char *tmp0 = strdup(remotepath1);
+		FREE(remotepath1);
 		/* jump to the 1st '/' of http[s]:// */
 		char *tmp1 = strchr(tmp0, '/');
 		/* jump behind the two '//' and get the next '/'. voila: the path! */
 		char *tmp2 = strchr(tmp1 + 2, '/');
 
 		if (tmp2 == NULL)
-			tmp_remotepath = strdup("");
+			remotepath1 = strdup("");
 		else
-			tmp_remotepath = strdup(tmp2);
+			remotepath1 = strdup(tmp2);
 
-		NE_FREE(tmp0);
+		FREE(tmp0);
 	}
 
 	/* don't add this directory to itself */
-	if (!strcmp(tmp_remotepath2, tmp_remotepath)) {
-		NE_FREE(tmp_remotepath);
-		NE_FREE(tmp_remotepath2);
+	if (!strcmp(remotepath2, remotepath1)) {
+		free_chars(&remotepath, &remotepath1, &remotepath2, NULL);
 		return;
 	}
 
 	/* extract filename from the path. it's the string behind the last '/'. */
-	char *filename = strrchr(tmp_remotepath, '/');
+	char *filename = strrchr(remotepath1, '/');
 	filename++;
-
-	/* unescape the filename to add the file to the filesystem */
-	filename = ne_path_unescape(filename);
-	if (filename == NULL) {
-		NE_FREE(tmp_remotepath);
-		NE_FREE(tmp_remotepath2);
-		printf("## ne_path_unescape() error in %s()!\n", __func__);
-		return;
-	}
 
 	/* set this file's attributes. the "ne_prop_result_set *results" contains
 	 * the file attributes of all files of this collection (directory). this 
@@ -417,15 +454,13 @@ static void wdfs_readdir_propfind_callback(
 	set_stat(&stat, results);
 
 	/* add this file's attributes to the cache */
-	cache_add_item(&stat, tmp_remotepath);
+	cache_add_item(&stat, remotepath1);
 
 	/* add directory entry */
 	if (item_data->filler(item_data->buf, filename, &stat, 0))
 		printf("## filler() error in %s()!\n", __func__);
 
-	NE_FREE(filename);
-	NE_FREE(tmp_remotepath);
-	NE_FREE(tmp_remotepath2);
+	free_chars(&remotepath, &remotepath1, &remotepath2, NULL);
 }
 
 
@@ -490,14 +525,14 @@ static int wdfs_readdir(
 	if (ret != NE_OK) {
 			printf("## PROPFIND error in %s(): %s\n",
 				__func__, ne_get_error(session));
-		NE_FREE(item_data.remotepath);
+		FREE(item_data.remotepath);
 		return -ENOENT;
 	}
 
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 
-	NE_FREE(item_data.remotepath);
+	FREE(item_data.remotepath);
 	return 0;
 }
 
@@ -530,7 +565,7 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 		remotepath = get_remotepath(localpath);
 
 	if (remotepath == NULL) {
-		NE_FREE(file);
+		FREE(file);
 		return -ENOMEM;
 	}
 
@@ -541,11 +576,11 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 			/* locking the file is not possible, because the file is locked by 
 			 * somebody else. read-only access is allowed. */
 			if ((fi->flags & O_ACCMODE) == O_RDONLY) {
-				printf("## file %s is locked. ", remotepath);
+				printf("## error: file %s is already locked. ", remotepath);
 				printf("nevertheless allowing read-only (O_RDONLY) access!\n");
 			} else {
-				NE_FREE(file);
-				NE_FREE(remotepath);
+				FREE(file);
+				FREE(remotepath);
 				return -EACCES;
 			}
 		}
@@ -556,11 +591,11 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 	 * and than the data needs to be present. */
 	if (ne_get(session, remotepath, file->fh)) {
 		printf("## GET error: %s\n", ne_get_error(session));
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -ENOENT;
 	}
 
-	NE_FREE(remotepath);
+	FREE(remotepath);
 
 	/* save our "struct open_file" to the fuse filehandle
 	 * this looks like a dirty hack too me, but it's the fuse way... */
@@ -641,7 +676,7 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
 	if (file->modified == true) 	{
 		if (ne_put(session, remotepath, file->fh)) {
 			printf("## PUT error: %s\n", ne_get_error(session));
-			NE_FREE(remotepath);
+			FREE(remotepath);
 			return -EIO;
 		}
 
@@ -656,7 +691,7 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
 		 * has been read and writen and so now it's time to remove the lock. */
 		if (locking_enabled == true && locking_mode == ADVANCED_LOCK) {
 			if (unlockfile(remotepath)) {
-				NE_FREE(remotepath);
+				FREE(remotepath);
 				return -EACCES;
 			}
 		}
@@ -665,15 +700,15 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
 	/* if locking is enabled and mode is SIMPLE_LOCK, simple unlock on close() */
 	if (locking_enabled == true && locking_mode == SIMPLE_LOCK) {
 		if (unlockfile(remotepath)) {
-			NE_FREE(remotepath);
+			FREE(remotepath);
 			return -EACCES;
 		}
 	}
 
 	/* close filehandle and free memory */
 	close(file->fh);
-	NE_FREE(file);
-	NE_FREE(remotepath);
+	FREE(file);
+	FREE(remotepath);
 
 	return 0;
 }
@@ -683,7 +718,7 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
  * wdfs_truncate is called by fuse, when a file is opened with the O_TRUNC flag
  * or truncate() is called. according to 'man truncate' if the file previously 
  * was larger than this size, the extra data is lost. if the file previously 
- * was shorter, it is extended, and the extended part is filled with zero bytes. 
+ * was shorter, it is extended, and the extended part is filled with zero bytes.
  */
 static int wdfs_truncate(const char *localpath, off_t size)
 {
@@ -725,7 +760,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 			printf("## GET error: %s\n", ne_get_error(session));
 			close(fh_in);
 			close(fh_out);
-			NE_FREE(remotepath);
+			FREE(remotepath);
 			return -ENOENT;
 		}
 
@@ -734,7 +769,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 			printf("## pread() error: %d\n", ret);
 			close(fh_in);
 			close(fh_out);
-			NE_FREE(remotepath);
+			FREE(remotepath);
 			return -EIO;
 		}
 	}
@@ -744,7 +779,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 		printf("## pwrite() error: %d\n", ret);
 		close(fh_in);
 		close(fh_out);
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -EIO;
 	}
 
@@ -752,7 +787,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 		printf("## PUT error: %s\n", ne_get_error(session));
 		close(fh_in);
 		close(fh_out);
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -EIO;
 	}
 
@@ -761,7 +796,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 
 	close(fh_in);
 	close(fh_out);
-	NE_FREE(remotepath);
+	FREE(remotepath);
 	return 0;
 }
 
@@ -792,7 +827,7 @@ static int wdfs_ftruncate(
 	int ret = ftruncate(file->fh, size);
 	if (ret < 0) {
 		printf("## ftruncate() error: %d\n", ret);
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -EIO;
 	}
 
@@ -804,7 +839,7 @@ static int wdfs_ftruncate(
 	struct stat stat;
 	if (cache_get_item(&stat, remotepath) < 0) {
 		printf("## cache_get_item() error: item '%s' not found!\n", remotepath);
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -EIO;
 	}
 
@@ -817,7 +852,7 @@ static int wdfs_ftruncate(
 	/* update the cache */
 	cache_add_item(&stat, remotepath);
 
-	NE_FREE(remotepath);
+	FREE(remotepath);
 
 	return 0;
 }
@@ -842,19 +877,19 @@ static int wdfs_mknod(const char *localpath, mode_t mode, dev_t rdev)
 
 	int fh = get_filehandle();
 	if (fh == -1) {
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -EIO;
 	}
 
 	if (ne_put(session, remotepath, fh)) {
 		printf("## PUT error: %s\n", ne_get_error(session));
 		close(fh);
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -EIO;
 	}
 
 	close(fh);
-	NE_FREE(remotepath);
+	FREE(remotepath);
 	return 0;
 }
 
@@ -878,11 +913,11 @@ static int wdfs_mkdir(const char *localpath, mode_t mode)
 
 	if (ne_mkcol(session, remotepath)) {
 		printf("MKCOL error: %s\n", ne_get_error(session));
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -ENOENT;
 	}
 
-	NE_FREE(remotepath);
+	FREE(remotepath);
 	return 0;
 }
 
@@ -907,21 +942,21 @@ static int wdfs_unlink(const char *localpath)
 	/* unlock the file, to be able to unlink it */
 	if (locking_enabled == true) {
 		if (unlockfile(remotepath)) {
-			NE_FREE(remotepath);
+			FREE(remotepath);
 			return -EACCES;
 		}
 	}
 
 	if (ne_delete(session, remotepath)) {
 		printf("## DELETE error: %s\n", ne_get_error(session));
-		NE_FREE(remotepath);
+		FREE(remotepath);
 		return -ENOENT;
 	}
 
 	/* this file no longer exists, so remove it also from the cache */
 	cache_delete_item(remotepath);
 
-	NE_FREE(remotepath);
+	FREE(remotepath);
 	return 0;
 }
 
@@ -938,8 +973,8 @@ static int wdfs_rename(const char *localpath_src, const char *localpath_dest)
 	assert(localpath_src && localpath_dest);
 
 	/* data below svn_basedir is read-only */
-	if	(svn_mode == true && 
-		(g_str_has_prefix(localpath_src, svn_basedir) || 
+	if	(svn_mode == true &&
+		(g_str_has_prefix(localpath_src, svn_basedir) ||
 		 g_str_has_prefix(localpath_dest, svn_basedir)))
 		return -EROFS;
 
@@ -951,22 +986,32 @@ static int wdfs_rename(const char *localpath_src, const char *localpath_dest)
 	/* unlock the source file, before renaming */
 	if (locking_enabled == true) {
 		if (unlockfile(remotepath_src)) {
-			NE_FREE(remotepath_src);
+			FREE(remotepath_src);
 			return -EACCES;
 		}
 	}
 
 	if (ne_move(session, 1, remotepath_src, remotepath_dest)) {
 		printf("## MOVE error: %s\n", ne_get_error(session));
-		NE_FREE(remotepath_src)	;
-		NE_FREE(remotepath_dest);
+		free_chars(&remotepath_src, &remotepath_dest, NULL);
 		return -ENOENT;
 	}
 
 	cache_delete_item(remotepath_src);
 
-	NE_FREE(remotepath_src)	;
-	NE_FREE(remotepath_dest);
+	free_chars(&remotepath_src, &remotepath_dest, NULL);
+	return 0;
+}
+
+
+/* this is just a dummy implementation to avoid errors, when running chmod. */
+int wdfs_chmod(const char *localpath, mode_t mode)
+{
+	if (debug_mode == true)
+		print_debug_infos(__func__, localpath);
+
+	printf("## error: chmod() is not (yet) implemented.\n");
+
 	return 0;
 }
 
@@ -994,7 +1039,7 @@ static void wdfs_destroy() {
 	cache_destroy();
 	unlock_all_files();
 	ne_session_destroy(session);
-	NE_FREE(remotepath_basedir);
+	FREE(remotepath_basedir);
 	svn_free_repository_root();
 }
 
@@ -1016,6 +1061,7 @@ static struct fuse_operations wdfs_operations = {
 	.unlink		= wdfs_unlink,
 	.rmdir		= wdfs_unlink,
 	.rename		= wdfs_rename,
+	.chmod		= wdfs_chmod,
 	/* utime should be better named setattr
 	 * see: http://sourceforge.net/mailarchive/message.php?msg_id=11344401 */
 	.utime		= wdfs_setattr,
@@ -1031,15 +1077,14 @@ static void print_help_and_exit(const char *program_name)
 	printf(
 "usage: %s mountpoint -a http[s]://webdav-server/[directory/] [options]\n\n"
 "wdfs options:\n"
-"    -v                     show version information\n"
+"    -v                     show short informations about wdfs\n"
+"    -vv                    show versions of wdfs, fuse and neon\n"
 "    -h                     show this help page\n"
 "    -D                     enable wdfs debug output\n"
 "    -a URI                 address of the webdav resource to mount\n"
 "    -ac                    accept ssl certificate. don't prompt the user.\n"
 "    -u username            username of the webdav resource\n"
 "    -p password            password of the webdav resource\n"
-"                  WARNING: the password is stored in the system's process\n"
-"                           table and might be viewed by other users logged in!\n"
 "    -r                     enable redirect support (not for the mountpoint)\n"
 "    -S                     enable subversion mode to access old revisions\n"
 "    -l                     enable locking of files, while they are open\n"
@@ -1066,149 +1111,203 @@ static void print_help_and_exit(const char *program_name)
 int main(int argc, char *argv[])
 {
 	char *webdav_resource = NULL, *username = NULL, *password = NULL;
+	int status_program_exec = 1;
+
+	/* at least 2 parameters are needed for 'wdfs -v' and 'wdfs -h' */
+	if (argc < 2) {
+		printf("## error: too few parameters.\n");
+		print_help_and_exit("wdfs");
+	}
+	/* print help or wdfs version if requested */
+	if (!strcmp(argv[1], "-h"))
+		print_help_and_exit(argv[0]);
+	if (!strcmp(argv[1], "-v")) {
+		printf(	"%s | wdfs is a webdav filesystem with special "
+				"features for accessing subversion | %s\n",
+				project_name, project_url);
+		exit(0);
+	}
+	if (!strcmp(argv[1], "-vv")) {
+		printf(	"%s using fuse/%d.%d.x and neon/0.%d.x\n",
+			project_name, FUSE_MAJOR_VERSION, FUSE_MINOR_VERSION, NEON_VERSION);
+		exit(0);
+	}
+	/* at least 4 parameters are needed to mount a webdav resource successfully:
+	 * wdfs ~/mountpoint -a http://server/                                 */
+	if (argc < 4) {
+		printf("## error: too few parameters.\n");
+		print_help_and_exit("wdfs");
+	}
 
 	int fuse_argc = 0;
 	/* initialize array for the parameters, that are passed to fuse_main() */
-	char **fuse_argv = (char **) malloc(sizeof(char **) * argc + 23);
+	char **fuse_argv = (char **) malloc(sizeof(char **) * (argc + 10));
 	if (fuse_argv == NULL)
 		return -ENOMEM;
 
 	/* safe this program's name */
-	fuse_argv[fuse_argc++] = argv[0];
+	fuse_argv[fuse_argc++] = strdup(argv[0]);
 	/* safe the mointpoint. it's checked by fuse so no need to do it here. */
-	fuse_argv[fuse_argc++] = argv[1];
+	fuse_argv[fuse_argc++] = strdup(argv[1]);
 
-	int arg_number, tmp_lock_mode;
+	int arg_number;
+	bool_t error_parameter_parsing = false;
 	/* check the parameters passed to wdfs. some are used by wdfs and some are
 	 * for fuse. these are put into a new argv-array and later passed to 
 	 * fuse_main(). */
-	for (arg_number = 1; arg_number < argc; arg_number++) {
+	for (arg_number = 2; arg_number < argc; arg_number++) {
 		char *this_arg = argv[arg_number];
-		if (this_arg[0] == '-') {
-			switch (this_arg[1]) {
-				case 'a':
-					/* parameter "-ac" (accept certificate) */
-					if (this_arg[2] == 'c' && this_arg[3] == '\0')
-						accept_certificate = true;
-					/* parameter "-a" (address of the webdav resource) */
-					else
-						webdav_resource = argv[++arg_number];
-					break;
-				case 'u':
-					username = argv[++arg_number];
-					break;
-				case 'p':
-					password = argv[++arg_number];
-					break;
-				case 'r':
-					redirect_support = true;
-					break;
-				case 'S':
-					svn_mode = true;
-					break;
-				case 'l':
-					locking_enabled = true;
-					break;
-				case 't':
-					lock_timeout = atoi(argv[++arg_number]);
-					break;
-				case 'm':
-					tmp_lock_mode = atoi(argv[++arg_number]);
-					if (tmp_lock_mode == 1)
-						locking_mode = SIMPLE_LOCK;
-					else if (tmp_lock_mode == 2)
-						locking_mode = ADVANCED_LOCK;
-					else if (tmp_lock_mode == 3)
-						locking_mode = ETERNITY_LOCK;
-					else {
-						NE_FREE(fuse_argv);
-						printf("## error: passed invalid locking mode.\n");
-						print_help_and_exit(argv[0]);
+		/* each parameter must start with an "-"  */
+		if (this_arg[0] != '-') {
+			printf("## error: passed invalid parameter '%s'.\n", this_arg);
+			error_parameter_parsing = true;
+			goto cleanup;
+		}
+		switch (this_arg[1]) {
+			case 'a':
+				/* parameter "-ac" (accept certificate) */
+				if (this_arg[2] == 'c' && this_arg[3] == '\0')
+					accept_certificate = true;
+				/* parameter "-a" (address of the webdav resource) */
+				else {
+					if (++arg_number >= argc) {
+						error_parameter_parsing = true;
+						goto cleanup;
 					}
-					break;
-				case 'D':
-					debug_mode = true;
-					/* to see wdfs debug output, fuse must run in foreground */
-					fuse_argv[fuse_argc++] = "-f";
-					break;
-				case 'h':
-					NE_FREE(fuse_argv);
-					print_help_and_exit(argv[0]);
-					break;
-				case 'v':
-					NE_FREE(fuse_argv);
-					printf(	"%s | wdfs is a webdav filesystem with special "
-							"features for accessing subversion | %s\n",
-							project_name, project_url);
-					exit(0);
-					break;
+					webdav_resource = strdup(argv[arg_number]);
+				}
+				break;
+			case 'u':
+				if (++arg_number >= argc) {
+					error_parameter_parsing = true;
+					goto cleanup;
+				}
+				username = strdup(argv[arg_number]);
+				break;
+			case 'p':
+				if (++arg_number >= argc) {
+					error_parameter_parsing = true;
+					goto cleanup;
+				}
+				password = strdup(argv[arg_number]);
+				break;
+			case 'r':
+				redirect_support = true;
+				break;
+			case 'S':
+				svn_mode = true;
+				break;
+			case 'l':
+				locking_enabled = true;
+				break;
+			case 't':
+				if (++arg_number >= argc) {
+					error_parameter_parsing = true;
+					goto cleanup;
+				}
+				lock_timeout = atoi(argv[arg_number]);
+				if (lock_timeout == 0) {
+					printf("## error: 0 is an invalid timeout value.\n");
+					error_parameter_parsing = true;
+					goto cleanup;
+				}
+				break;
+			case 'm':
+				if (++arg_number >= argc) {
+					error_parameter_parsing = true;
+					goto cleanup;
+				}
+				int locking_mode_tmp = atoi(argv[arg_number]);
+				if (locking_mode_tmp == 1)
+					locking_mode = SIMPLE_LOCK;
+				else if (locking_mode_tmp == 2)
+					locking_mode = ADVANCED_LOCK;
+				else if (locking_mode_tmp == 3)
+					locking_mode = ETERNITY_LOCK;
+				else {
+					printf("## error: passed invalid locking mode.\n");
+					error_parameter_parsing = true;
+					goto cleanup;
+				}
+				break;
+			case 'D':
+				debug_mode = true;
+				/* to see wdfs debug output, fuse must run in foreground */
+				fuse_argv[fuse_argc++] = strdup("-f");
+				break;
 
-				/* collect parameters for fuse_main() */
-				case 'f':
-				case 'd':
-				case 's':
-					fuse_argv[fuse_argc++] = argv[arg_number];
-					break;
-				case 'o':
-					/* parameter was passed like this: "-o name" */
-					if (this_arg[2] == '\0') {
-						fuse_argv[fuse_argc++] = argv[arg_number];
-						fuse_argv[fuse_argc++] = argv[++arg_number];
-					/* parameter was passed like this: "-oname" */
-					} else {
-						fuse_argv[fuse_argc++] = argv[arg_number];
+			/* collect parameters for fuse_main() */
+			case 'f':
+			case 'd':
+			case 's':
+				fuse_argv[fuse_argc++] = strdup(argv[arg_number]);
+				break;
+			case 'o':
+				/* parameter was passed like this: "-o name" */
+				if (this_arg[2] == '\0') {
+					fuse_argv[fuse_argc++] = strdup(argv[arg_number]);
+					if (++arg_number >= argc) {
+						error_parameter_parsing = true;
+						goto cleanup;
 					}
-					break;
-
-				default:
-					printf("## error: passed unknown parameter.\n");
-					NE_FREE(fuse_argv);
-					print_help_and_exit(argv[0]);
-			}
+					fuse_argv[fuse_argc++] = strdup(argv[arg_number]);
+				/* parameter was passed like this: "-oname" */
+				} else
+					fuse_argv[fuse_argc++] = strdup(argv[arg_number]);
+				break;
+			default:
+				printf("## error: passed unknown parameter.\n");
+				error_parameter_parsing = true;
+				goto cleanup;
 		}
 	}
 
+	/* reset parameters to avoid storing sensitive data in the process table */
+	for (arg_number = 2; arg_number < argc; arg_number++)
+		memset(argv[arg_number], 0, strlen(argv[arg_number]));
 	/* set a nice name for /proc/mounts */
-	fuse_argv[fuse_argc++] = "-ofsname=wdfs";
+	fuse_argv[fuse_argc++] =
+		ne_concat("-ofsname=wdfs (", webdav_resource, ")", NULL);
 	/* ensure that wdfs is called in single thread mode */
-	fuse_argv[fuse_argc++] = "-s";
+	fuse_argv[fuse_argc++] = strdup("-s");
 #if FUSE_VERSION >= 24
 	/* wdfs must not use the fuse caching of names (entries) and attributes! */
-	fuse_argv[fuse_argc++] = "-oentry_timeout=0";
-	fuse_argv[fuse_argc++] = "-oattr_timeout=0";
+	fuse_argv[fuse_argc++] = strdup("-oentry_timeout=0");
+	fuse_argv[fuse_argc++] = strdup("-oattr_timeout=0");
 #endif
 	/* array must be NULL-terminated */
 	fuse_argv[fuse_argc] = NULL;
 
-	/* exit, if there is no webdav resource to connect to */
-	if (webdav_resource == NULL) {
-		printf("## error: use parameter -a with webdav resource to mount.\n");
-		NE_FREE(fuse_argv);
-		print_help_and_exit(argv[0]);
-	}
-
 	/* set up webdav connection, exit on error */
 	if (setup_webdav_session(webdav_resource, username, password)) {
-		NE_FREE(fuse_argv);
-		return 1;
+		status_program_exec = 1;
+		goto cleanup;
 	}
-	
+
 	if (svn_mode == true) {
 		if(svn_set_repository_root()) {
-			printf("## error: could not set repository root.\n");
+			printf("## error: could not set subversion repository root.\n");
 			ne_session_destroy(session);
-			NE_FREE(fuse_argv);
-			return 1;
+			status_program_exec = 1;
+			goto cleanup;
 		}
 	}
 
 	cache_initialize();
 
 	/* finally call fuse */
-	int ret = fuse_main(fuse_argc, fuse_argv, &wdfs_operations);
+	status_program_exec = fuse_main(fuse_argc, fuse_argv, &wdfs_operations);
 
 	/* clean up and quit wdfs */
-	NE_FREE(fuse_argv);
-	return ret;
+cleanup:
+	for (arg_number = 0; arg_number < fuse_argc; arg_number++)
+		FREE(fuse_argv[arg_number]);
+	FREE(fuse_argv);
+	free_chars(&webdav_resource, &username, &password, NULL);
+
+	if (error_parameter_parsing == true)
+		print_help_and_exit(argv[0]);
+
+	return status_program_exec;
 }
 
