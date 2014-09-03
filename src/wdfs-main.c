@@ -1,8 +1,24 @@
 /* 
- * wdfs is a webdav filesystem with special features for accessing subversion
- * repositories. it is based on fuse v2.3+ and neon v0.24.7+.
- * (c) 2005 jens m. noedler, noedler@web.de, http://noedler.de/projekte/wdfs/
+ *  this file is part of wdfs --> http://noedler.de/projekte/wdfs/
+ *
+ *  wdfs is a webdav filesystem with special features for accessing subversion
+ *  repositories. it is based on fuse v2.3+ and neon v0.24.7+.
  * 
+ *  copyright (c) 2005 jens m. noedler, noedler@web.de
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
 /* use package name and version from config.h, if the file is available. */
@@ -35,8 +51,12 @@
 
 
 /* if set to "true" wdfs specific debug output is generated. default is "false".
- * do not edit here! it can be changed via parameter -D passed to wdfs.      */
+ * do not edit here! it can be changed via parameter "-D" passed to wdfs.    */
 bool_t debug_mode = false;
+
+/* if set to "true" via parameter "-ac" verify_ssl_certificate() [in webdav.c]
+ * will not ask the user wether to accept the certificate or not. */
+bool_t accept_certificate = false;
 
 /* webdav server base directory. if you are connected to "http://server/dir/"
  * remotepath_basedir is set to "/dir" (starting slash, no ending slash).
@@ -44,18 +64,18 @@ bool_t debug_mode = false;
 char *remotepath_basedir;
 
 /* product string according RFC2616, that is included in every request.      */
-const char *project_name	= PROJECT_NAME;
+const char *project_name = PROJECT_NAME;
 
 /* homepage of this filesystem.                                              */
-const char *project_url		= "http://noedler.de/projekte/wdfs/";
+const char *project_url = "http://noedler.de/projekte/wdfs/";
 
 
 /* enables or disables file locking for the webdav resource. 
- * do not edit here! it can be changed via parameter -l passed to wdfs.      */
+ * do not edit here! it can be changed via parameter "-l" passed to wdfs.    */
 bool_t locking_enabled = false;
 
 /* lock timeout in seconds. "-1" means infinite. default are 300 sec. / 5 min.
- * do not edit here! it can be changed via parameter -t sec passed to wdfs.  */
+ * do not edit here! it can be changed via parameter "-t sec" passed to wdfs */
 int lock_timeout = 300;
 
 /* there are two locking modes available. the simple locking mode locks a file 
@@ -68,7 +88,7 @@ int lock_timeout = 300;
 #define ETERNITY_LOCK 3
 
 /* default locking mode is SIMPLE_LOCK
- * do not edit here! it can be changed via parameter -m mode passed to wdfs. */
+ * do not edit here! it can be changed via parameter "-m mode" passed to wdfs*/
 int locking_mode = SIMPLE_LOCK;
 
 
@@ -871,6 +891,7 @@ static void print_help_and_exit(const char *program_name)
 "    -h                     show this help page\n"
 "    -D                     enable wdfs debug output\n"
 "    -a URI                 address of the webdav resource to mount\n"
+"    -ac                    accept ssl certificate. don't prompt the user.\n"
 "    -u username            username of the webdav resource\n"
 "    -p password            password of the webdav resource\n"
 "    -S                     enable subversion mode to access old revisions\n"
@@ -892,15 +913,15 @@ static void print_help_and_exit(const char *program_name)
 
 
 /* author jens, 25.08.2005 09:22:39, location: hamburg hagenbeck 
- * the main method parses the arguments passed to wdfs and separates them from
- * arguments for fuse. the it connects to the webdav resource (server) and 
- * starts the cache. finally it calls main_fuse() with the fuse arguments. */
+ * the main method parses the parameters passed to wdfs and separates them from
+ * parameter for fuse. the it connects to the webdav resource (server) and 
+ * starts the cache. finally it calls main_fuse() with the fuse parameters. */
 int main(int argc, char *argv[])
 {
 	char *webdav_resource = NULL, *username = NULL, *password = NULL;
 
 	int fuse_argc = 0;
-	/* initialize array for the arguments, that are passed to fuse_main() */
+	/* initialize array for the parameters, that are passed to fuse_main() */
 	char **fuse_argv = (char **) malloc(sizeof(char **) * argc + 15);
 	if (fuse_argv == NULL)
 		return -ENOMEM;
@@ -911,7 +932,7 @@ int main(int argc, char *argv[])
 	fuse_argv[fuse_argc++] = argv[1];
 
 	int arg_number, tmp_lock_mode;
-	/* check the arguments passed to wdfs. some are used by wdfs and some are
+	/* check the parameters passed to wdfs. some are used by wdfs and some are
 	 * for fuse. these are put into a new argv-array and later passed to 
 	 * fuse_main(). */
 	for (arg_number = 1; arg_number < argc; arg_number++) {
@@ -919,16 +940,18 @@ int main(int argc, char *argv[])
 		if (this_arg[0] == '-') {
 			switch (this_arg[1]) {
 				case 'a':
-					webdav_resource = argv[arg_number + 1];
-					arg_number++;
+					/* parameter "-ac" (accept certificate) */
+					if (this_arg[2] == 'c' && this_arg[3] == '\0')
+						accept_certificate = true;
+					/* parameter "-a" (address of the webdav resource) */
+					else
+						webdav_resource = argv[++arg_number];
 					break;
 				case 'u':
-					username = argv[arg_number + 1];
-					arg_number++;
+					username = argv[++arg_number];
 					break;
 				case 'p':
-					password = argv[arg_number + 1];
-					arg_number++;
+					password = argv[++arg_number];
 					break;
 				case 'S':
 					svn_mode = true;
@@ -937,12 +960,10 @@ int main(int argc, char *argv[])
 					locking_enabled = true;
 					break;
 				case 't':
-					lock_timeout = atoi(argv[arg_number + 1]);
-					arg_number++;
+					lock_timeout = atoi(argv[++arg_number]);
 					break;
 				case 'm':
-					tmp_lock_mode = atoi(argv[arg_number + 1]);
-					arg_number++;
+					tmp_lock_mode = atoi(argv[++arg_number]);
 					if (tmp_lock_mode == 1)
 						locking_mode = SIMPLE_LOCK;
 					else if (tmp_lock_mode == 2)
@@ -966,13 +987,13 @@ int main(int argc, char *argv[])
 					break;
 				case 'v':
 					NE_FREE(fuse_argv);
-					printf(	"%s | fuse-based webdav filesystem with special "
-							"subversion features | %s\n",
+					printf(	"%s | wdfs is a webdav filesystem with special "
+							"features for accessing subversion | %s\n",
 							project_name, project_url);
 					exit(0);
 					break;
 
-				/* collect arguments for fuse_main() */
+				/* collect parameters for fuse_main() */
 				case 'f':
 				case 'd':
 				case 's':
@@ -983,8 +1004,7 @@ int main(int argc, char *argv[])
 					/* parameter was passed like this: "-o name" */
 					if (this_arg[2] == '\0') {
 						fuse_argv[fuse_argc++] = argv[arg_number];
-						fuse_argv[fuse_argc++] = argv[arg_number + 1];
-						arg_number++;
+						fuse_argv[fuse_argc++] = argv[++arg_number];
 					/* parameter was passed like this: "-oname" */
 					} else {
 						fuse_argv[fuse_argc++] = argv[arg_number];

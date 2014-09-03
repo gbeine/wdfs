@@ -13,6 +13,7 @@ typedef enum {
 
 /* look at wdfs-main.c for comments on these extern variables */
 extern bool_t debug_mode;
+extern bool_t accept_certificate;
 extern const char *project_name;
 extern char *remotepath_basedir;
 
