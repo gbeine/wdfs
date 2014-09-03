@@ -27,11 +27,14 @@
 
 /* lifetime of a cache item in seconds. this value can be edit here. */
 #define CACHE_ITEM_TIMEOUT 20
+
 /* initalize this mutex, which is used to prevent data 
  * inconsistencies due to race conditions. */
 pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /* every created thread needs an id. this is the cache control thread's id. */
 pthread_t cache_control_thread_id;
+
 /* hash object to store the cache items */
 static GHashTable *cache;
 
@@ -177,7 +180,7 @@ void cache_delete_item(const char *remotepath)
 
 /* looks at the cache for the wanted item. if it's found and not already timed
  * out, the "struct stat *stat" is pointing to the wanted item's stat. 
- * returns 0 on success and -1 on error. */
+ * returns 0 on success or -1 on error. */
 int cache_get_item(struct stat *stat, const char *remotepath)
 {
 	int ret = -1;

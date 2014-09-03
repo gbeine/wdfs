@@ -1,31 +1,7 @@
 /* 
- * wdfs -- fuse-2.3-based webdav filesystem with special subversion features
+ * wdfs is a webdav filesystem with special features for accessing subversion
+ * repositories. it is based on fuse v2.3+ and neon v0.24.7+.
  * (c) 2005 jens m. noedler, noedler@web.de, http://noedler.de/projekte/wdfs/
- * 
- * limitations of this implementation:
- *  - wdfs is not multithread safe. it always uses the fuse single thread mode.
- *  - the svn revision is implemented as an integer and is limited to 2^31-1.
- *  - wdfs does not support ssl encryted connections.
- * 
- * limitations of wdfs, caused by other limitations:
- *  - wdfs supports only utf-8 encoded filenames and directory names.
- *    use utf8 capable applications or pure ascii (no iso8859!) encoded names.
- *    (caused by subversion, which stores all data utf-8 encoded)
- *  - wdfs does not support setting file attributes with utime() or utimes()
- *    (used by "touch file -m -t 200601010000"). see wdfs_setattr() for details.
- *    (caused by webdav rfc 2518)
- * 
- * source code conventions:
- *  - variable name "remotepath" is used for WebDAV access (/remote/dir/file)
- *  - variable name "localpath" is used for local access (/file)
- *  - variable name "ret" is used for the return values of a method
- *  - methods, structs, etc. starting with "ne_" are part of the neon library
- *  - error output: 
- *     - "## " prefix for warnings and error messages
- *  - debug output
- *     - ">> " prefix for fuse callback methods
- *     - "** " prefix for cache related messages (no errors)
- *     - "++ " prefix for locking related messages (no errors)
  * 
  */
 
@@ -61,12 +37,15 @@
 /* if set to "true" wdfs specific debug output is generated. default is "false".
  * do not edit here! it can be changed via parameter -D passed to wdfs.      */
 bool_t debug_mode = false;
+
 /* webdav server base directory. if you are connected to "http://server/dir/"
  * remotepath_basedir is set to "/dir" (starting slash, no ending slash).
- * if connected to the root directory (http://server/) it will be set "".    */
+ * if connected to the root directory (http://server/) it will be set to "". */
 char *remotepath_basedir;
+
 /* product string according RFC2616, that is included in every request.      */
 const char *project_name	= PROJECT_NAME;
+
 /* homepage of this filesystem.                                              */
 const char *project_url		= "http://noedler.de/projekte/wdfs/";
 
@@ -74,9 +53,11 @@ const char *project_url		= "http://noedler.de/projekte/wdfs/";
 /* enables or disables file locking for the webdav resource. 
  * do not edit here! it can be changed via parameter -l passed to wdfs.      */
 bool_t locking_enabled = false;
+
 /* lock timeout in seconds. "-1" means infinite. default are 300 sec. / 5 min.
  * do not edit here! it can be changed via parameter -t sec passed to wdfs.  */
 int lock_timeout = 300;
+
 /* there are two locking modes available. the simple locking mode locks a file 
  * on open()ing it and unlocks it on close()ing the file. the advanced mode 
  * prevents data curruption by locking the file on open() and holds the lock 
@@ -85,6 +66,7 @@ int lock_timeout = 300;
 #define SIMPLE_LOCK 1
 #define ADVANCED_LOCK 2
 #define ETERNITY_LOCK 3
+
 /* default locking mode is SIMPLE_LOCK
  * do not edit here! it can be changed via parameter -m mode passed to wdfs. */
 int locking_mode = SIMPLE_LOCK;
@@ -114,8 +96,8 @@ static const ne_propname properties_fileattr[] = {
 char* remove_ending_slash(const char *in)
 {
 	int length = strlen(in);
-	if (in[length-1] == '/')
-		return (char*)strndup(in, length-1);
+	if (in[length - 1] == '/')
+		return (char*)strndup(in, length - 1);
 	else
 		return (char*)strdup(in);
 }
@@ -201,12 +183,15 @@ static void set_stat(struct stat* stat, const ne_prop_result_set *results)
 		stat->st_mtime = ne_rfc1123_parse(lastmodified);
 	else 
 		stat->st_mtime = 0;
+
 	if (creationdate != NULL)
 		stat->st_ctime = ne_iso8601_parse(creationdate);
 	else
 		stat->st_ctime = 0;
+
 	/* calculate number of 512 byte blocks */
 	stat->st_blocks	= (stat->st_size + 511) / 512;
+
 	/* no need to set a restrict mode, because fuse filesystems can
 	 * only be accessed by the user that mounted the filesystem.  */
 	stat->st_mode	&= ~umask(0);
@@ -278,7 +263,8 @@ static int wdfs_getattr(const char *localpath, struct stat *stat)
 			session, remotepath, NE_DEPTH_ZERO, properties_fileattr,
 			wdfs_getattr_propfind_callback, stat);
 		if (ret != NE_OK) {
-			printf("## PROPFIND error: %s\n", ne_get_error(session));
+			printf("## PROPFIND error in %s(): %s\n",
+				__func__, ne_get_error(session));
 			NE_FREE(remotepath);
 			return -ENOENT;
 		}
@@ -396,7 +382,8 @@ static int wdfs_readdir(
 		session, item_data.remotepath, NE_DEPTH_ONE,
 		properties_fileattr, wdfs_readdir_propfind_callback, &item_data);
 	if (ret != NE_OK) {
-		printf("## PROPFIND error: %s\n", ne_get_error(session));
+			printf("## PROPFIND error in %s(): %s\n",
+				__func__, ne_get_error(session));
 		NE_FREE(item_data.remotepath);
 		return -ENOENT;
 	}
@@ -846,6 +833,7 @@ static void wdfs_destroy() {
 	unlock_all_files();
 	ne_session_destroy(session);
 	NE_FREE(remotepath_basedir);
+	svn_free_repository_root();
 }
 
 
@@ -1029,6 +1017,15 @@ int main(int argc, char *argv[])
 	if (setup_webdav_session(webdav_resource, username, password)) {
 		NE_FREE(fuse_argv);
 		return 1;
+	}
+	
+	if (svn_mode == true) {
+		if(svn_set_repository_root()) {
+			printf("## error: could not set repository root!\n");
+			ne_session_destroy(session);
+			NE_FREE(fuse_argv);
+			return 1;
+		}
 	}
 
 	cache_initialize();

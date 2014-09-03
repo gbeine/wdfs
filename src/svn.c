@@ -43,21 +43,33 @@
  * accessing all svn revisions. it must start with '/' and end without '/'. 
  * it may be edited here. */
 const char *svn_basedir = "/0-all-revisions";
+
+/* svn_repository_root is the path to the root of the svn repository. this is
+ * needed, if a subdir of the repository is mounted to allow access to the old
+ * revisions, because the path to access them always starts at the root of a 
+ * repository. */
+char *svn_repository_root = NULL;
+
 /* controls how many directories are put in a single level 2 chunk. editable. */
 static const int svn_revisions_per_level2_directory = 200;
+
 /* svn_mode enables transparent access to all svn revisions in a repository
  * via a virtual directory. "true" enables svn_mode, "false" disables svn_mode.
  * don't edit here! it can be changed via parameter -S passed to wdfs. */
 bool_t svn_mode = false;
-/* internal part of a uri for propfinding. don't edit! */
-static const char *svn_versioncontrol_uri = "/!svn/vcc/default";
 
 
-/* webdav property used to get the latest svn revision */
+/* webdav properties used to get the latest svn revision */
 static const ne_propname property_checked_in[] = {
 	{ "DAV:", "checked-in"},
 	{ NULL } /* MUST be NULL terminated! */
 };
+
+static const ne_propname property_vcc[] = {
+	{ "DAV:", "version-controlled-configuration"},
+	{ NULL } /* MUST be NULL terminated! */
+};
+
 
 
 /* +++++++ local static methods +++++++ */
@@ -98,18 +110,18 @@ static void svn_get_latest_revision_callback(
 	if (debug_mode == true)
 		printf(">> SVN latest revision _string_: %s\n", latest_revision_string);
 
-	/* string to int conversion */
+	/* string to integer conversion */
 	*latest_revision = atoi(latest_revision_string);
 
 	NE_FREE(latest_revision_string);
 }
 
 
-/* returns -1 on error and the latest svn revision on success */
+/* returns -1 on error or the latest svn revision on success */
 static int svn_get_latest_revision()
 {
 	int latest_revision;
-	char *uri = ne_concat(remotepath_basedir, svn_versioncontrol_uri, NULL);
+	char *uri = ne_concat(svn_repository_root, "!svn/vcc/default", NULL);
 	ne_propfind_handler *pfh = ne_propfind_create(session, uri, NE_DEPTH_ZERO);
 	int ret = ne_propfind_named(pfh, property_checked_in,
 					&svn_get_latest_revision_callback, &latest_revision);
@@ -152,12 +164,58 @@ static int get_integer_length(int in)
 }
 
 
+/* callback from svn_set_repository_root() to do the dirty string parsing. */
+static void svn_set_repository_root_callback(
+	void *userdata, const char *href, const ne_prop_result_set *results)
+{
+	assert(results);
+
+	/* the string looks like "<href>/.../.../!svn/vcc/default</href>" */
+	char *result = (char*)ne_propset_value(results, &property_vcc[0]);
+	/* use a GString struct for comfortable string erasing */
+	GString *g_result = g_string_new(result);
+	/* remove starting tag ("<href>") */
+	g_string_erase(g_result, 0, 6);
+	/* remove trailing stuff ("!svn/vcc/default</href>"),
+	 * so that only "/.../.../" -- the repository root path -- remains. */
+	g_string_erase(g_result, g_result->len - 23, 23);
+	svn_repository_root = strdup(g_result->str);
+	g_string_free(g_result, TRUE);
+}
+
+
 /* +++++++ exported non-static methods +++++++ */
+
+/* set the root path of the mounted repository. this path might differ from the
+ * mounted uri if a subdir of the repository is mounted. return 0 on success or
+ * -1 on error. */
+int svn_set_repository_root() {
+	/* if remotepath_basedir is empty set svn_repository_root to "/" and quit */
+	if (!strcmp(remotepath_basedir, "")) {
+		svn_repository_root = strdup("/");
+		return 0;
+	}
+
+	ne_propfind_handler *pfh = 
+		ne_propfind_create(session, remotepath_basedir, NE_DEPTH_ZERO);
+	int ret = ne_propfind_named(pfh, property_vcc, 
+		&svn_set_repository_root_callback, NULL);
+	ne_propfind_destroy(pfh);
+	if (ret != NE_OK) {
+		printf("## ne_propfind_named() error\n");
+		return -1;
+	}
+	return 0;
+}
+
+void svn_free_repository_root() {
+	NE_FREE(svn_repository_root);
+}
 
 
 /* converts a localpath to a remotepath to access old revision 
- * IN:             /svn_basedir/x-y/1234/directory/file.txt
- * OUT: /remotepath_basedir/!svn/bc/1234/directory/file.txt or NULL on error */
+ * IN:              /svn_basedir/x-y/1234/directory/file.txt
+ * OUT: /svn_repository_root/!svn/bc/1234/directory/file.txt or NULL on error */
 char* svn_get_remotepath(const char *localpath)
 {
 	assert(localpath);
@@ -169,7 +227,7 @@ char* svn_get_remotepath(const char *localpath)
 	 * path including the revision. e.g. "/1234/directory/file.txt" */
 	char *path = strchr(g_localpath->str, '/');
 	/* concat the svn uri string, that allows to access this revision */
-	char *remotepath = ne_concat(remotepath_basedir, "/!svn/bc", path, NULL);
+	char *remotepath = ne_concat(svn_repository_root, "!svn/bc", path, NULL);
 	g_string_free(g_localpath, TRUE);
 	if (remotepath == NULL)
 		return NULL;

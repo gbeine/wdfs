@@ -1,3 +1,72 @@
- * wdfs -- fuse-2.3-based webdav filesystem with special subversion features
- * (c) 2005 jens m. noedler, noedler@web.de, http://noedler.de/projekte/wdfs/
+
+abstract:
+ wdfs is a webdav filesystem with special features for accessing subversion
+ repositories. it is based on fuse v2.3+ and neon v0.24.7+.
+
+
+author and web page of wdfs: 
+ (c) 2005 jens m. noedler, noedler@web.de, http://noedler.de/projekte/wdfs/
+
+
+features:
+ - generic webdav filesystem
+ - support for file lock (3 different modes)
+ - access to all revisions of a webdav exported subversion repository 
+ - versioning filesystem for autoversioning-enabled subversion repositories
+
+
+dependencies:
+ - fuse v2.3 or later (http://fuse.sourceforge.net/)
+ - neon webdav library v0.24.7 or later (http://www.webdav.org/neon/)
+
+
+installation:
+ tar xfz wdfs-1.x.x.tar.gz
+ cd wdfs-1.x.x
+ ./configure && make && make install
+
+
+limitations of this implementation:
+ - wdfs is not (yet) multithread safe. it always uses fuse single thread mode.
+ - wdfs does not support ssl encryted connections.
+ - the svn revision is implemented as an integer and is limited to 2^31-1.
+
+
+limitations of wdfs, caused by other limitations:
+ - wdfs supports only utf-8 encoded filenames and directory names.
+   use utf8 capable applications or pure ascii (no iso8859!) encoded names.
+   (limitation caused by subversion, which stores all data utf-8 encoded)
+ - wdfs does not support setting file attributes with utime() or utimes()
+   (used by "touch file -m -t 200601010000"). see wdfs_setattr() for details.
+   (limitation caused by webdav rfc 2518)
+ - wdfs does not support ftruncate(), beacause of a race condition between
+   wdfs_release() and wdfs_truncate(). an example:
+      // wdfs_open() get the file to file->fh (filehandle)
+      int fh = open(filename, O_WRONLY);
+      // wdfs_write() writes to file->fh
+      write(fh, string, strlen(string));
+      // wdfs_truncate() gets the file, truncates it and puts it back
+      ftruncate(fh, 10);
+      // wdfs_release() will be called and will overwrite wdfs_truncate()'s
+      // changes, because wdfs_open(), wdfs_read(), wdfs_write() and
+      // wdfs_release() deal with file->fh. wdfs_truncate() cannot do so.
+      close(fh);
+   more infos: http://sourceforge.net/mailarchive/message.php?msg_id=12662730
+   conclusion: use truncate() instead of ftruncate().
+   (limitation caused by fuse, linux kernel and myself)
+
+
+source code conventions:
+ - variable name "remotepath" is used for WebDAV access (/remote/dir/file)
+ - variable name "localpath" is used for local access (/file)
+ - variable name "ret" is used for the return values of methods
+ - methods, structs, etc. starting with "ne_" are part of the neon library
+ - error output: 
+    - "## " prefix for warnings and error messages
+ - debug output
+    - ">> " prefix for fuse callback methods
+    - "** " prefix for cache related messages (no errors)
+    - "++ " prefix for locking related messages (no errors)
+ 
+ 
  
