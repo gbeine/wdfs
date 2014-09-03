@@ -4,7 +4,7 @@
  *  wdfs is a webdav filesystem with special features for accessing subversion
  *  repositories. it is based on fuse v2.3+ and neon v0.24.7+.
  * 
- *  copyright (c) 2005 jens m. noedler, noedler@web.de
+ *  copyright (c) 2005 - 2006 jens m. noedler, noedler@web.de
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -82,7 +82,7 @@ int lock_timeout = 300;
  * on open()ing it and unlocks it on close()ing the file. the advanced mode 
  * prevents data curruption by locking the file on open() and holds the lock 
  * until the file was writen and closed or the lock timed out. the eternity 
- * mode holds the lock until wdfs is unmounted or the lock timed out. */
+ * mode holds the lock until wdfs is unmounted or the lock timed out.        */
 #define SIMPLE_LOCK 1
 #define ADVANCED_LOCK 2
 #define ETERNITY_LOCK 3
@@ -312,6 +312,28 @@ static void wdfs_readdir_propfind_callback(
 	char *tmp_remotepath  = remove_ending_slash(remotepath);
 	char *tmp_remotepath2 = remove_ending_slash(item_data->remotepath);
 
+	/* some servers send the complete URI in 'char *remotepath' not only the 
+	 * path. so we remove the server part and use only the path.
+	 * example1:  before: "https://server.com/path/to/hell/"
+	 *            after:  "/path/to/hell/"
+	 * example2:  before: "http://server.com"
+	 *            after:  ""                                                 */
+	if (g_str_has_prefix(tmp_remotepath, "http")) {
+		char *tmp0 = strdup(tmp_remotepath);
+		NE_FREE(tmp_remotepath);
+		/* jump to the 1st '/' of http[s]:// */
+		char *tmp1 = strchr(tmp0, '/');
+		/* jump behind the two '//' and get the next '/'. voila the path! */
+		char *tmp2 = strchr(tmp1 + 2, '/');
+
+		if (tmp2 == NULL)
+			tmp_remotepath = strdup("");
+		else
+			tmp_remotepath = strdup(tmp2);
+
+		NE_FREE(tmp0);
+	}
+
 	/* don't add this directory to itself */
 	if (!strcmp(tmp_remotepath2, tmp_remotepath)) {
 		NE_FREE(tmp_remotepath);
@@ -396,7 +418,6 @@ static int wdfs_readdir(
 
 	if (item_data.remotepath == NULL)
 		return -ENOMEM;
-
 
 	int ret = ne_simple_propfind(
 		session, item_data.remotepath, NE_DEPTH_ONE,
@@ -884,8 +905,7 @@ static struct fuse_operations wdfs_operations = {
 static void print_help_and_exit(const char *program_name)
 {
 	printf(
-"usage: %s mountpoint -a http://webdav-server/[directory/] [options]\n"
-"\n"
+"usage: %s mountpoint -a http[s]://webdav-server/[directory/] [options]\n\n"
 "wdfs options:\n"
 "    -v                     show version information\n"
 "    -h                     show this help page\n"

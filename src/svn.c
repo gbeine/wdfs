@@ -4,7 +4,7 @@
  *  wdfs is a webdav filesystem with special features for accessing subversion
  *  repositories. it is based on fuse v2.3+ and neon v0.24.7+.
  * 
- *  copyright (c) 2005 jens m. noedler, noedler@web.de
+ *  copyright (c) 2005 - 2006 jens m. noedler, noedler@web.de
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by

@@ -1,0 +1,104 @@
+2006-01-05  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.1.1
+	added some comments about the fixed bug
+
+2006-01-04  jens m. noedler  <noedler@web.de>
+
+	1.1.1-pre1
+
+2006-01-04  jens m. noedler  <noedler@web.de>
+
+	fixed a bug that appeared if a servers sends the complete URI not only the path
+	thanks to luke plant for reporting and supporting!
+
+2006-01-04  jens m. noedler  <noedler@web.de>
+
+	updated the year in the copyright statement
+
+2005-11-19  jens m. noedler  <noedler@web.de>
+
+	typo updates
+
+2005-11-08  jens m. noedler  <noedler@web.de>
+
+	added automatic ChangeLog generation
+
+2005-11-08  jens m. noedler  <noedler@web.de>
+
+	added version number conventions to README
+
+2005-11-08  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.1.0, 2nd checking ;)
+
+2005-11-08  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.1.0
+
+2005-11-08  jens m. noedler  <noedler@web.de>
+
+	-	x = argv[arg_number + 1];
+	-	arg_number++;
+	+	x = argv[++arg_number];
+
+2005-11-08  jens m. noedler  <noedler@web.de>
+
+	added neon cross compiling
+
+2005-11-05  jens m. noedler  <noedler@web.de>
+
+	1.1.0-pre2
+
+2005-11-05  jens m. noedler  <noedler@web.de>
+
+	typo only update
+
+2005-11-05  jens m. noedler  <noedler@web.de>
+
+	implemented parameter '-ac' (accept certificate)
+
+2005-11-05  jens m. noedler  <noedler@web.de>
+
+	choose gpl as license for wdfs and added gpl comments
+
+2005-11-03  jens m. noedler  <noedler@web.de>
+
+	commit
+
+2005-11-03  jens m. noedler  <noedler@web.de>
+
+	cleaned up verify_ssl_certificate()
+
+2005-11-03  jens m. noedler  <noedler@web.de>
+
+	fixed a bug when mounting non-webdav http resources
+
+2005-11-01  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.0.2-pre1: basic and buggy ssl support
+
+2005-10-28  jens m. noedler  <noedler@web.de>
+
+	README update
+
+2005-10-08  jens m. noedler  <noedler@web.de>
+
+	bugfix in svn.c (mounting a subdir of a repository and access old revisions works fine)
+
+2005-10-06  jens m. noedler  <noedler@web.de>
+
+	updated README
+
+2005-09-17  jens m. noedler  <noedler@web.de>
+
+	added files "jens-*"
+
+2005-09-16  jens m. noedler  <noedler@web.de>
+
+	renamed fuse01 to wdfs
+
+2005-09-13  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.0
+

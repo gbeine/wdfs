@@ -57,7 +57,8 @@ limitations of wdfs, caused by other limitations:
    more infos: http://sourceforge.net/mailarchive/message.php?msg_id=12662730
    conclusion: use truncate() instead of ftruncate().
    (limitation caused by fuse, linux kernel and myself)
-   (will be fixed when linux kernel 2.6.15 and fuse 2.5 are available!)
+   (will be fixed when linux kernel 2.6.15 and fuse 2.5.0 are available, commit:
+    http://kernel.org/git/?p=linux/kernel/git/torvalds/linux-2.6.git;a=commit;h=cc4e69dee4a080f6eae3f410daec2593f4fa6f00)
 
 
 source code conventions:
@@ -71,6 +72,13 @@ source code conventions:
     - ">> " prefix for fuse callback methods
     - "** " prefix for cache related messages (no errors)
     - "++ " prefix for locking related messages (no errors)
+
+
+version number conventions:
+ - the major number will never change. only for a complete rewrite. ;-)
+ - the minor number changes if new features are introduced.
+ - the last number changes on bugfixes and little changes.
+   e.g. v1.1.0 introduced new features from it's predecessor v1.0.1
 
 
 license:
