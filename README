@@ -4,12 +4,17 @@ abstract:
   repositories. it is based on fuse v2.3+ and neon v0.24.7+.
 
 
-author and homepage of wdfs:
-  (c) 2005 jens m. noedler, noedler@web.de, http://noedler.de/projekte/wdfs/
+author of wdfs:
+  (c) 2005 - 2006 jens m. noedler, noedler@web.de
+
+
+home of wdfs:
+  http://noedler.de/projekte/wdfs/
 
 
 features:
- - generic webdav filesystem with https-support
+ - generic webdav filesystem
+ - http redirect support and https support
  - support for file locking (3 different modes)
  - access to all revisions of a webdav exported subversion repository 
  - versioning filesystem for autoversioning enabled subversion repositories
@@ -17,48 +22,52 @@ features:
 
 dependencies:
  - fuse (filesystem in userspace) v2.3 or later (http://fuse.sourceforge.net/)
+   fuse v2.5 or later and linux kernel 2.6.15 or later are recommended.
  - neon webdav library v0.24.7 or later (http://www.webdav.org/neon/)
+   wdfs is _not_ yet compatible with the neon 0.26 series!
 
 
 installation:
-  tar xfz wdfs-1.x.x.tar.gz
-  cd wdfs-1.x.x
-  ./configure && make && make install
+  $ tar xfz wdfs-1.x.x.tar.gz
+  $ cd wdfs-1.x.x
+  $ ./configure && make
+  $ sudo -c "make install"
+
+
+debian packages:
+  http://www.gnu.buildtolearn.net/linux/packages/wdfs/
+  thanks for providing the packages, simon rutishauser!
+
+
+usage:
+  $ mkdir ~/mountpoint
+  $ wdfs ~/mountpoint -a http[s]://webdav-server/[directory/] [options]
+  $ wdfs -h   # will print wdfs and fuse options
 
 
 limitations of this implementation:
  - wdfs is not (yet) multithread safe. it always uses fuse single thread mode.
+ - read/write of big files (~ 50 MB+) is slow, because the _complete_ file 
+   will be GET/PUT on a request.
  - svn mode: only up to 2^31-1 revisions can be accessed, 
    because "latest_revision" is an integer variable.
  - svn mode: if a subdirectory of a subversion repository is mounted, the 
    "svn_basedir" shows the content of the repository root and not only the 
    content of the mounted subdir. [caused by svn_get_remotepath()]
+ - http redirect support:
+    * there is no redirect support for the mountpoint. please mount the new
+      location, that will be printed as an error message.
+    * the redirect support is limited to the webdav server, that is mounted.
+      redirects to another server are not supported.
 
 
 limitations of wdfs, caused by other limitations:
  - wdfs supports only utf-8 encoded filenames and directory names.
    use utf8 capable applications or pure ascii (no iso8859!) encoded names.
    (limitation caused by subversion, which stores all data utf-8 encoded)
- - wdfs does not support setting file attributes with utime() or utimes()
-   (used by "touch file -m -t 200601010000"). see wdfs_setattr() for details.
-   (limitation caused by webdav rfc 2518)
- - wdfs does not support ftruncate(), beacause of a race condition between
-   wdfs_release() and wdfs_truncate(). an example:
-      // wdfs_open() get the file to file->fh (filehandle)
-      int fh = open(filename, O_WRONLY);
-      // wdfs_write() writes to file->fh
-      write(fh, string, strlen(string));
-      // wdfs_truncate() gets the file, truncates it and puts it back
-      ftruncate(fh, 10);
-      // wdfs_release() will be called and will overwrite wdfs_truncate()'s
-      // changes, because wdfs_open(), wdfs_read(), wdfs_write() and
-      // wdfs_release() deal with file->fh. wdfs_truncate() cannot do so.
-      close(fh);
-   more infos: http://sourceforge.net/mailarchive/message.php?msg_id=12662730
-   conclusion: use truncate() instead of ftruncate().
-   (limitation caused by fuse, linux kernel and myself)
-   (will be fixed when linux kernel 2.6.15 and fuse 2.5.0 are available, commit:
-    http://kernel.org/git/?p=linux/kernel/git/torvalds/linux-2.6.git;a=commit;h=cc4e69dee4a080f6eae3f410daec2593f4fa6f00)
+ - wdfs does not support setting file attributes with utime() or utimes(). 
+   (e.g. used by "touch file -m -t 200601010000"). see wdfs_setattr() for 
+   details. (limitation caused by webdav rfc 2518)
 
 
 source code conventions:
@@ -77,6 +86,7 @@ source code conventions:
 version number conventions:
  - the major number will never change. only for a complete rewrite. ;-)
  - the minor number changes if new features are introduced.
+   warning: this may include backwards-incompatible changes!
  - the last number changes on bugfixes and little changes.
    e.g. v1.1.0 introduced new features from it's predecessor v1.0.1
 
@@ -87,6 +97,7 @@ license:
 
 
 acknowledgements:
-  milos szeredi for developing fuse and the active members of the 
-  fuse-devel mailing list for helping me with fuse and wdfs.
+  miklos szeredi for developing fuse and being a great maintainer, the 
+  members of the fuse-devel mailing list for helping me with fuse and
+  wdfs and everybody who is contributing to wdfs!
 

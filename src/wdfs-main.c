@@ -29,7 +29,19 @@
 #define PROJECT_NAME "wdfs/unknown-version"
 #endif
 
-#define FUSE_USE_VERSION 22
+#define FUSE_USE_VERSION 25
+
+/* build the fuse version, only needed by fuse 2.3 and earlier */
+#ifndef FUSE_VERSION
+  #define FUSE_MAKE_VERSION(maj, min)  ((maj) * 10 + (min))
+  #define FUSE_VERSION FUSE_MAKE_VERSION(FUSE_MAJOR_VERSION, FUSE_MINOR_VERSION)
+#endif
+
+#if FUSE_VERSION < 25
+  /* include is needed for the definition of uintptr_t,
+   * fuse 2.5 and later export it thru fuse_common.h */
+  #include <stdint.h>
+#endif
 
 #include <fuse.h>
 #include <stdio.h>
@@ -43,6 +55,7 @@
 #include <glib.h>
 #include <ne_props.h>
 #include <ne_dates.h>
+#include <ne_redirect.h>
 
 #include "wdfs-main.h"
 #include "webdav.h"
@@ -58,6 +71,9 @@ bool_t debug_mode = false;
  * will not ask the user wether to accept the certificate or not. */
 bool_t accept_certificate = false;
 
+/* if set to "true" via parameter "-r" wdfs provides http redirect support   */
+bool_t redirect_support = false;
+
 /* webdav server base directory. if you are connected to "http://server/dir/"
  * remotepath_basedir is set to "/dir" (starting slash, no ending slash).
  * if connected to the root directory (http://server/) it will be set to "". */
@@ -66,9 +82,8 @@ char *remotepath_basedir;
 /* product string according RFC2616, that is included in every request.      */
 const char *project_name = PROJECT_NAME;
 
-/* homepage of this filesystem.                                              */
+/* homepage of this filesystem                                               */
 const char *project_url = "http://noedler.de/projekte/wdfs/";
-
 
 /* enables or disables file locking for the webdav resource. 
  * do not edit here! it can be changed via parameter "-l" passed to wdfs.    */
@@ -82,7 +97,7 @@ int lock_timeout = 300;
  * on open()ing it and unlocks it on close()ing the file. the advanced mode 
  * prevents data curruption by locking the file on open() and holds the lock 
  * until the file was writen and closed or the lock timed out. the eternity 
- * mode holds the lock until wdfs is unmounted or the lock timed out.        */
+ * mode holds the lock until the fs is unmounted or the lock timed out.      */
 #define SIMPLE_LOCK 1
 #define ADVANCED_LOCK 2
 #define ETERNITY_LOCK 3
@@ -95,7 +110,7 @@ int locking_mode = SIMPLE_LOCK;
 /* infos about an open file. used by open(), read(), write() and release()   */
 struct open_file {
 	unsigned long fh;	/* this file's filehandle                            */
-	bool_t modified;		/* set true if the filehandle's content is modified  */
+	bool_t modified;	/* set true if the filehandle's content is modified  */
 };
 
 
@@ -174,14 +189,14 @@ static void set_stat(struct stat* stat, const ne_prop_result_set *results)
 	if (debug_mode == true)
 		print_debug_infos(__func__, "");
 
-	const char 	*resourcetype, *contentlength, *lastmodified, *creationdate;
+	const char *resourcetype, *contentlength, *lastmodified, *creationdate;
 	assert(stat && results);
 	memset(stat, 0, sizeof(struct stat));
 
 	/* get the values from the propfind result set */
 	resourcetype	= ne_propset_value(results, &properties_fileattr[0]);
 	contentlength	= ne_propset_value(results, &properties_fileattr[1]);
-	lastmodified		= ne_propset_value(results, &properties_fileattr[2]);
+	lastmodified	= ne_propset_value(results, &properties_fileattr[2]);
 	creationdate	= ne_propset_value(results, &properties_fileattr[3]);
 
 	/* webdav collection == directory entry */ 
@@ -214,9 +229,43 @@ static void set_stat(struct stat* stat, const ne_prop_result_set *results)
 
 	/* no need to set a restrict mode, because fuse filesystems can
 	 * only be accessed by the user that mounted the filesystem.  */
-	stat->st_mode	&= ~umask(0);
-	stat->st_uid	= getuid();
-	stat->st_gid	= getgid();
+	stat->st_mode &= ~umask(0);
+	stat->st_uid = getuid();
+	stat->st_gid = getgid();
+}
+
+
+/* this method is invoked, if a redirect needs to be done. actually it simple 
+ * frees the current remotepath and sets the remotepath to the redirect target.
+ * return and prints an error if the current host and new host differ. returns
+ * 0 on success and -1 on error. side effect: remotepath is freed on error. */
+static int handle_redirect(char **remotepath) {
+	if (debug_mode == true)
+		print_debug_infos(__func__, *remotepath);
+
+	/* free the old value of remotepath, because it's no longer needed */
+	NE_FREE(*remotepath);
+
+	/* get the current_uri and new_uri structs */
+	ne_uri current_uri;
+	ne_fill_server_uri(session, &current_uri);
+	const ne_uri *new_uri = ne_redirect_location(session);
+
+	if (strcasecmp(current_uri.host, new_uri->host)) {
+		printf("## error: wdfs does not support redirect to other hosts!\n");
+		NE_FREE(current_uri.host);
+		NE_FREE(current_uri.scheme);
+		return -1;
+	}
+
+	/* can't use ne_uri_free() here, because only host and scheme are mallocd */
+	NE_FREE(current_uri.host);
+	NE_FREE(current_uri.scheme);
+
+	/* set the new remotepath to the redirect target path */
+	*remotepath = ne_strdup(new_uri->path);
+
+	return 0;
 }
 
 
@@ -277,11 +326,20 @@ static int wdfs_getattr(const char *localpath, struct stat *stat)
 	if (remotepath == NULL)
 		return -ENOMEM;
 
+
 	/* stat not found in the cache? perform a propfind to get stat! */
 	if (cache_get_item(stat, remotepath)) {
 		int ret = ne_simple_propfind(
 			session, remotepath, NE_DEPTH_ZERO, properties_fileattr,
 			wdfs_getattr_propfind_callback, stat);
+		/* handle the redirect and retry the propfind with the new target */
+		if (redirect_support == true && ret == NE_REDIRECT) {
+			if (handle_redirect(&remotepath))
+				return -ENOENT;
+			ret = ne_simple_propfind(
+				session, remotepath, NE_DEPTH_ZERO, properties_fileattr,
+				wdfs_getattr_propfind_callback, stat);
+		}
 		if (ret != NE_OK) {
 			printf("## PROPFIND error in %s(): %s\n",
 				__func__, ne_get_error(session));
@@ -323,7 +381,7 @@ static void wdfs_readdir_propfind_callback(
 		NE_FREE(tmp_remotepath);
 		/* jump to the 1st '/' of http[s]:// */
 		char *tmp1 = strchr(tmp0, '/');
-		/* jump behind the two '//' and get the next '/'. voila the path! */
+		/* jump behind the two '//' and get the next '/'. voila: the path! */
 		char *tmp2 = strchr(tmp1 + 2, '/');
 
 		if (tmp2 == NULL)
@@ -419,9 +477,18 @@ static int wdfs_readdir(
 	if (item_data.remotepath == NULL)
 		return -ENOMEM;
 
+
 	int ret = ne_simple_propfind(
 		session, item_data.remotepath, NE_DEPTH_ONE,
 		properties_fileattr, wdfs_readdir_propfind_callback, &item_data);
+	/* handle the redirect and retry the propfind with the redirect target */
+	if (redirect_support == true && ret == NE_REDIRECT) {
+		if (handle_redirect(&item_data.remotepath))
+			return -ENOENT;
+		ret = ne_simple_propfind(
+			session, item_data.remotepath, NE_DEPTH_ONE,
+			properties_fileattr, wdfs_readdir_propfind_callback, &item_data);
+	}
 	if (ret != NE_OK) {
 			printf("## PROPFIND error in %s(): %s\n",
 				__func__, ne_get_error(session));
@@ -439,13 +506,12 @@ static int wdfs_readdir(
 
 /* author jens, 13.08.2005 11:22:20, location: unknown, refactored in goettingen
  * get the file from the server already at open() and write the data to a new
- * filehandle. also create a "struct open_file" to store information about
- * flags passed to open() (O_RDONLY, O_WRONLY, ...) */
+ * filehandle. also create a "struct open_file" to store the filehandle. */
 static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 {
 	if (debug_mode == true) {
 		print_debug_infos(__func__, localpath);
-		printf(">> %s() called by PID %d\n", __func__, fuse_get_context()->pid);
+		printf(">> %s() by PID %d\n", __func__, fuse_get_context()->pid);
 	}
 
 	assert(localpath && fi);
@@ -477,7 +543,7 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 			/* locking the file is not possible, because the file is locked by 
 			 * somebody else. read-only access is allowed. */
 			if ((fi->flags & O_ACCMODE) == O_RDONLY) {
-				printf("## file '%s' is locked. ", remotepath);
+				printf("## file %s is locked. ", remotepath);
 				printf("nevertheless allowing read-only (O_RDONLY) access!\n");
 			} else {
 				NE_FREE(file);
@@ -498,13 +564,15 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 
 	NE_FREE(remotepath);
 
+	/* save our "struct open_file" to the fuse filehandle
+	 * this looks like a dirty hack too me, but it's the fuse way... */
 	fi->fh = (unsigned long)file;
 
 	return 0;
 }
 
 
-/* reads data from the filehandle with pread() to fullfill read requests */
+/* reads data from the filehandle with pread() to fulfill read requests */
 static int wdfs_read(
 	const char *localpath, char *buf, size_t size,
 	off_t offset, struct fuse_file_info *fi)
@@ -514,7 +582,7 @@ static int wdfs_read(
 
 	assert(localpath && buf && size &&  &fi);
 
-	struct open_file *file = (struct open_file*)fi->fh;
+	struct open_file *file = (struct open_file*)(uintptr_t)fi->fh;
 
 	int ret = pread(file->fh, buf, size, offset);
 	if (ret < 0) {
@@ -526,7 +594,7 @@ static int wdfs_read(
 }
 
 
-/* writes data to the filehandle with pwrite() to fullfill write requests */
+/* writes data to the filehandle with pwrite() to fulfill write requests */
 static int wdfs_write(
 	const char *localpath, const char *buf, size_t size,
 	off_t offset, struct fuse_file_info *fi)
@@ -540,7 +608,7 @@ static int wdfs_write(
 	if (svn_mode == true && g_str_has_prefix(localpath, svn_basedir))
 		return -EROFS;
 
-	struct open_file *file = (struct open_file*)fi->fh;
+	struct open_file *file = (struct open_file*)(uintptr_t)fi->fh;
 
 	int ret = pwrite(file->fh, buf, size, offset);
 	if (ret < 0) {
@@ -565,7 +633,7 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
 	if (debug_mode == true)
 		print_debug_infos(__func__, localpath);
 
-	struct open_file *file = (struct open_file*)fi->fh;
+	struct open_file *file = (struct open_file*)(uintptr_t)fi->fh;
 
 	char *remotepath = get_remotepath(localpath);
 	if (remotepath == NULL)
@@ -580,7 +648,7 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
 		}
 
 		if (debug_mode == true)
-			printf(">> wdfs_release(): PUT the file to the server\n");
+			printf(">> wdfs_release(): PUT the file to the server.\n");
 
 		/* attributes for this file are no longer up to date.
 		 * so remove it from cache. */
@@ -614,11 +682,10 @@ static int wdfs_release(const char *localpath, struct fuse_file_info *fi)
 
 
 /* author jens, 13.08.2005 11:32:20, location: unknown, refactored in goettingen
- * wdfs_truncate is called by fuse, when a file is opened with the O_TRUNC flag, 
- * ftruncate() or truncate() is called. it is used to resize a file. according
- * to 'man truncate' if the file previously was larger than this size, the 
- * extra data is lost. if the file previously was shorter, it is extended, and
- * the extended part is filled with zero bytes. 
+ * wdfs_truncate is called by fuse, when a file is opened with the O_TRUNC flag
+ * or truncate() is called. according to 'man truncate' if the file previously 
+ * was larger than this size, the extra data is lost. if the file previously 
+ * was shorter, it is extended, and the extended part is filled with zero bytes. 
  */
 static int wdfs_truncate(const char *localpath, off_t size)
 {
@@ -647,7 +714,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 	int ret;
 	int fh_in  = get_filehandle();
 	int fh_out = get_filehandle();
-	if (fh_in == -1 || fh_out == -1 )
+	if (fh_in == -1 || fh_out == -1)
 		return -EIO;
 
 	char buffer[size];
@@ -701,6 +768,62 @@ static int wdfs_truncate(const char *localpath, off_t size)
 }
 
 
+/* author jens, 12.03.2006 19:44:23, location: goettingen in the winter
+ * ftruncate is called on already opened files, truncate on not yet opened
+ * files. ftruncate is supported since wdfs 1.2.0 and needs at least 
+ * fuse 2.5.0 and linux kernel 2.6.15. */
+#if FUSE_VERSION >= 25
+static int wdfs_ftruncate(
+	const char *localpath, off_t size, struct fuse_file_info *fi)
+{
+	if (debug_mode == true)
+		print_debug_infos(__func__, localpath);
+
+	assert(localpath && size && &fi);
+
+	/* data below svn_basedir is read-only */
+	if (svn_mode == true && g_str_has_prefix(localpath, svn_basedir))
+		return -EROFS;
+
+	char *remotepath = get_remotepath(localpath);
+	if (remotepath == NULL)
+		return -ENOMEM;
+
+	struct open_file *file = (struct open_file*)(uintptr_t)fi->fh;
+
+	int ret = ftruncate(file->fh, size);
+	if (ret < 0) {
+		printf("## ftruncate() error: %d\n", ret);
+		NE_FREE(remotepath);
+		return -EIO;
+	}
+
+	/* set this flag, to indicate that data has been modified and needs to be
+	 * put to the webdav server. */
+	file->modified = true;
+
+	/* update the cache item of the ftruncate()d file */
+	struct stat stat;
+	if (cache_get_item(&stat, remotepath) < 0) {
+		printf("## cache_get_item() error: item '%s' not found!\n", remotepath);
+		NE_FREE(remotepath);
+		return -EIO;
+	}
+
+	/* set the new size after the ftruncate() call */
+	stat.st_size = size;
+
+	/* calculate number of 512 byte blocks */
+	stat.st_blocks	= (stat.st_size + 511) / 512;
+
+	/* update the cache */
+	cache_add_item(&stat, remotepath);
+
+	NE_FREE(remotepath);
+
+	return 0;
+}
+#endif
 
 /* author jens, 28.07.2005 18:15:12, location: noedlers garden in trubenhausen
  * this method creates a empty file using the webdav method put. */
@@ -886,13 +1009,16 @@ static struct fuse_operations wdfs_operations = {
 	.write		= wdfs_write,
 	.release	= wdfs_release,
 	.truncate	= wdfs_truncate,
+#if FUSE_VERSION >= 25
+	.ftruncate	= wdfs_ftruncate,
+#endif
 	.mknod		= wdfs_mknod,
 	.mkdir		= wdfs_mkdir,
 	/* webdav treats file and directory deletions equal, both use wdfs_unlink */
 	.unlink		= wdfs_unlink,
 	.rmdir		= wdfs_unlink,
 	.rename		= wdfs_rename,
-	/* utime should better be named setattr
+	/* utime should be better named setattr
 	 * see: http://sourceforge.net/mailarchive/message.php?msg_id=11344401 */
 	.utime		= wdfs_setattr,
 	.destroy	= wdfs_destroy,
@@ -914,6 +1040,9 @@ static void print_help_and_exit(const char *program_name)
 "    -ac                    accept ssl certificate. don't prompt the user.\n"
 "    -u username            username of the webdav resource\n"
 "    -p password            password of the webdav resource\n"
+"                  WARNING: the password is stored in the system's process\n"
+"                           table and might be viewed by other users logged in!\n"
+"    -r                     enable redirect support (not for the mountpoint)\n"
 "    -S                     enable subversion mode to access old revisions\n"
 "    -l                     enable locking of files, while they are open\n"
 "    -t locking_timeout     timeout for a lock in seconds, -1 means infinite\n"
@@ -921,7 +1050,7 @@ static void print_help_and_exit(const char *program_name)
 "    -m locking_mode        select a locking mode:\n"
 "                           1: simple lock:   from open until close (default)\n"
 "                           2: advanced lock: from open until write + close\n"
-"                           3: eternity lock: from open until unmount of timeout\n"
+"                           3: eternity lock: from open until umount or timeout\n"
 "\n", program_name);
 
 	/* just call fuse to display it's help */
@@ -942,7 +1071,7 @@ int main(int argc, char *argv[])
 
 	int fuse_argc = 0;
 	/* initialize array for the parameters, that are passed to fuse_main() */
-	char **fuse_argv = (char **) malloc(sizeof(char **) * argc + 15);
+	char **fuse_argv = (char **) malloc(sizeof(char **) * argc + 23);
 	if (fuse_argv == NULL)
 		return -ENOMEM;
 
@@ -972,6 +1101,9 @@ int main(int argc, char *argv[])
 					break;
 				case 'p':
 					password = argv[++arg_number];
+					break;
+				case 'r':
+					redirect_support = true;
 					break;
 				case 'S':
 					svn_mode = true;
@@ -1017,7 +1149,6 @@ int main(int argc, char *argv[])
 				case 'f':
 				case 'd':
 				case 's':
-				case 'r':
 					fuse_argv[fuse_argc++] = argv[arg_number];
 					break;
 				case 'o':
@@ -1043,6 +1174,11 @@ int main(int argc, char *argv[])
 	fuse_argv[fuse_argc++] = "-ofsname=wdfs";
 	/* ensure that wdfs is called in single thread mode */
 	fuse_argv[fuse_argc++] = "-s";
+#if FUSE_VERSION >= 24
+	/* wdfs must not use the fuse caching of names (entries) and attributes! */
+	fuse_argv[fuse_argc++] = "-oentry_timeout=0";
+	fuse_argv[fuse_argc++] = "-oattr_timeout=0";
+#endif
 	/* array must be NULL-terminated */
 	fuse_argv[fuse_argc] = NULL;
 
@@ -1061,7 +1197,7 @@ int main(int argc, char *argv[])
 	
 	if (svn_mode == true) {
 		if(svn_set_repository_root()) {
-			printf("## error: could not set repository root!\n");
+			printf("## error: could not set repository root.\n");
 			ne_session_destroy(session);
 			NE_FREE(fuse_argv);
 			return 1;

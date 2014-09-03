@@ -29,6 +29,7 @@
 #include <ne_auth.h>
 #include <ne_locks.h>
 #include <ne_socket.h>
+#include <ne_redirect.h>
 
 #include "wdfs-main.h"
 #include "webdav.h"
@@ -81,7 +82,7 @@ static int verify_ssl_certificate(
 	ne_ssl_cert_validity(certificate, from, to);
 	printf(" certificate is valid from %s to %s", from, to);
 	if (failures & NE_SSL_EXPIRED)
-		printf(" >>>expired!<<<");
+		printf(" >> certificate expired! <<");
 	printf("\n");
 
 	char *issued_to = ne_ssl_readable_dname(ne_ssl_cert_subject(certificate));
@@ -144,7 +145,7 @@ int setup_webdav_session(
 	/* parse the uri_string and return a uri struct */
 	ne_uri uri;
 	if (ne_uri_parse(uri_string, &uri)) {
-		printf("## ne_uri_parse() error: invalid URI <%s>\n", uri_string);
+		printf("## ne_uri_parse() error: invalid URI '%s'.\n", uri_string);
 		ne_uri_free(&uri);
 		return -1;
 	}
@@ -181,18 +182,29 @@ int setup_webdav_session(
 	if (use_authentication == true)
 		ne_set_server_auth(session, ne_set_server_auth_callback, NULL);
 
+	/* enable redirect support */
+	ne_redirect_register(session);
+
 	/* try to access the server */
 	ne_server_capabilities capabilities;
 	int ret = ne_options(session, uri.path, &capabilities);
 	if (ret != NE_OK) {
-		printf("## error: could not connect to '%s'. ", uri_string);
-		printf("reason: %s\n", ne_get_error(session));
+		printf("## error: could not mount remote server '%s'. ", uri_string);
+		printf("reason: %s", ne_get_error(session));
+		/* if we got a redirect, print the new destination uri and exit */
+		if (ret == NE_REDIRECT) {
+			const ne_uri *new_uri = ne_redirect_location(session);
+			char *new_uri_string = ne_uri_unparse(new_uri);
+			printf(" to '%s'", new_uri_string);
+			NE_FREE(new_uri_string);
+		}
+		printf(".\n");
 		ne_session_destroy(session);
 		ne_uri_free(&uri);
 		return -1;
 	}
 
-	/* is this a webdav server that fullfills webdav class 1? */
+	/* is this a webdav server that fulfills webdav class 1? */
 	if (capabilities.dav_class1 != 1) {
 		printf("## error: '%s' is not a webdav enabled server.\n", uri_string);
 		ne_session_destroy(session);
@@ -276,14 +288,14 @@ int lockfile(const char *remotepath, const int timeout)
 	lock->uri.path = ne_strdup(remotepath);
 
 	if (ne_lock(session, lock)) {
-		printf("## ne_lock() error\n");
-		printf("## could _not_ lock file '%s'\n", lock->uri.path);
+		printf("## ne_lock() error:\n");
+		printf("## could _not_ lock file '%s'.\n", lock->uri.path);
 		ne_lock_destroy(lock);
 		return 1;
 	} else {
 		ne_lockstore_add(store, lock);
 		if (debug_mode == true)
-			printf("++ locked file '%s'\n", remotepath);
+			printf("++ locked file '%s'.\n", remotepath);
 	}
 
 	return 0;
@@ -304,8 +316,8 @@ int unlockfile(const char *remotepath)
 
 	/* if the lock was found, unlock the file */
 	if (ne_unlock(session, lock)) {
-		printf("## ne_unlock() error\n");
-		printf("## could _not_ unlock file '%s'\n", lock->uri.path);
+		printf("## ne_unlock() error:\n");
+		printf("## could _not_ unlock file '%s'.\n", lock->uri.path);
 		ne_lock_destroy(lock);
 		return 1;
 	} else {
@@ -313,7 +325,7 @@ int unlockfile(const char *remotepath)
 		ne_lockstore_remove(store, lock);
 		ne_lock_destroy(lock);
 		if (debug_mode == true)
-			printf("++ unlocked file '%s'\n", remotepath);
+			printf("++ unlocked file '%s'.\n", remotepath);
 	}
 
 	return 0;
@@ -330,11 +342,11 @@ void unlock_all_files()
 		this_lock = ne_lockstore_first(store);
 		while (this_lock != NULL) {
 			if (ne_unlock(session, this_lock)) {
-				printf("## ne_unlock() error\n");
-				printf("## could _not_ unlock file '%s'\n", this_lock->uri.path);
+				printf("## ne_unlock() error:\n");
+				printf("## could _not_ unlock file '%s'.\n", this_lock->uri.path);
 			} else {
 				if (debug_mode == true)
-					printf("++ unlocked file '%s'\n", this_lock->uri.path);
+					printf("++ unlocked file '%s'.\n", this_lock->uri.path);
 			}
 			/* get the next lock from the lockstore */
 			this_lock = ne_lockstore_next(store);
@@ -342,7 +354,7 @@ void unlock_all_files()
 
 		/* finally destroy the lockstore */
 		if (debug_mode == true)
-			printf("++ destroying lockstore\n");
+			printf("++ destroying lockstore.\n");
 		ne_lockstore_destroy(store);
 	}
 }

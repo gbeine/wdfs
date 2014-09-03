@@ -1,3 +1,42 @@
+2006-04-10  jens m. noedler  <noedler@web.de>
+
+	wdfs, 1.2.0
+	updated the README
+
+2006-04-10  jens m. noedler  <noedler@web.de>
+
+	finally fixed the last ftruncate() bug
+	thanks to miklos! :-)
+
+2006-04-06  jens m. noedler  <noedler@web.de>
+
+	ftruncate() done.
+	but there is still a bug with ftruncate() and O_APPEND
+
+2006-03-12  jens m. noedler  <noedler@web.de>
+
+	made redirect support configurable via parameter "-r"
+	("-r" is no longer used by fuse, I think since v2.5)
+
+2006-03-12  jens m. noedler  <noedler@web.de>
+
+	smoother redirect support using
+	static int handle_redirect(char **remotepath);
+
+2006-03-12  jens m. noedler  <noedler@web.de>
+
+	stub for wdfs_ftruncate
+
+2006-03-12  jens m. noedler  <noedler@web.de>
+
+	some changes for FUSE_USE_VERSION 25
+	and compat with fuse 2.3 and 2.4
+
+2006-03-11  jens m. noedler  <noedler@web.de>
+
+	first stage of redirect support
+	first steps to go to fuse interface v25
+
 2006-01-05  jens m. noedler  <noedler@web.de>
 
 	wdfs, 1.1.1
