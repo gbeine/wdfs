@@ -234,7 +234,7 @@ int setup_webdav_session(
 	ne_redirect_register(session);
 
 	/* escape the path for the case that it contains special chars */
-	char *path = unify_path(uri.path, ESCAPE);
+	char *path = unify_path(uri.path, ESCAPE | LEAVESLASH);
 	if (path == NULL) {
 		printf("## error: unify_path() returned NULL\n");
 		ne_session_destroy(session);
@@ -278,7 +278,7 @@ int setup_webdav_session(
 
 	/* save the remotepath, because each fuse callback method need it to 
 	 * access the files at the webdav server */
-	remotepath_basedir = remove_ending_slash(uri.path);
+	remotepath_basedir = remove_ending_slashes(uri.path);
 	if (remotepath_basedir == NULL) {
 		ne_session_destroy(session);
 		ne_uri_free(&uri);

@@ -43,14 +43,6 @@
 #include "svn.h"
 
 
-/* use package name and version from config.h, if available. */
-#ifdef HAVE_CONFIG_H
-	#include <config.h>
-#else
-	#define PACKAGE_NAME 	"wdfs"
-	#define PACKAGE_VERSION	"unknown"
-#endif
-
 /* there are four locking modes available. the simple locking mode locks a file 
  * on open()ing it and unlocks it on close()ing the file. the advanced mode 
  * prevents data curruption by locking the file on open() and holds the lock 
@@ -65,6 +57,12 @@
 
 static void print_help();
 static int call_fuse_main(struct fuse_args *args);
+
+/* define package name and version if config.h is not available. */
+#ifndef HAVE_CONFIG_H
+	#define PACKAGE_NAME 	"wdfs"
+	#define PACKAGE_VERSION	"unknown"
+#endif
 
 /* product string according RFC 2616, that is included in every request.     */
 const char *project_name = PACKAGE_NAME"/"PACKAGE_VERSION;
@@ -231,15 +229,17 @@ void free_chars(char **arg, ...)
 }
 
 
-/* removes '/' if that is the last character.
- * returns the new malloc()d string or NULL on error.  */
-char* remove_ending_slash(const char *path)
+/* removes all trailing slashes from the path. 
+ * returns the new malloc()d path or NULL on error.  */
+char* remove_ending_slashes(const char *path)
 {
-	int length = strlen(path);
-	if (length - 1 >= 0  &&  path[length - 1] == '/')
-		return (char *)strndup(path, length - 1);
-	else
-		return (char *)strdup(path);
+	char *new_path = strdup(path);
+	int pos = strlen(path) - 1;
+
+	while(pos >= 0  &&  new_path[pos] == '/')
+		new_path[pos--] = '\0';
+
+	return new_path;
 }
 
 
@@ -248,30 +248,55 @@ char* remove_ending_slash(const char *path)
 char* unify_path(const char *path_in, int mode)
 {
 	assert(path_in);
-	char *tmp = remove_ending_slash(path_in);
-	if (tmp == NULL)
-		return NULL;
+	char *path_tmp, *path_out = NULL;
 
-	char *path_out = NULL;
+	if (mode & LEAVESLASH) {
+		path_tmp = strdup(path_in);
+		mode &= ~LEAVESLASH;
+	} else {
+		path_tmp = remove_ending_slashes(path_in);
+	}
+	
+	if (path_tmp == NULL)
+		return NULL;
 
 	switch (mode) {
 		case ESCAPE:
-			path_out = ne_path_escape(tmp);
+			path_out = ne_path_escape(path_tmp);
 			break;
 		case UNESCAPE:
-			path_out = ne_path_unescape(tmp);
+			path_out = ne_path_unescape(path_tmp);
 			break;
 		default:
 			fprintf(stderr, "## fatal error: unknown mode in %s()\n", __func__);
 			exit(1);
 	}
 
-	FREE(tmp);
+	FREE(path_tmp);
 	if (path_out == NULL)
 		return NULL;
 
 	return path_out;
 }
+
+
+/* mac os x lacks support for strndup() because it's a gnu extension. 
+ * be gentle to the apples and define the required method. */
+#ifndef HAVE_STRNDUP
+char* strndup(const char *str, size_t len1)
+{
+ 	size_t len2 = strlen(str);
+	if (len1 < len2)
+		len2 = len1;
+
+	char *result = (char *)malloc(len2 + 1);
+	if (result == NULL)
+		return NULL;
+
+	result[len2] = '\0';
+	return (char *)memcpy(result, str, len2);
+}
+#endif
 
 
 /* +++ helper methods +++ */
@@ -391,7 +416,7 @@ static int handle_redirect(char **remotepath)
 
 	if (strcasecmp(current_uri.host, new_uri->host)) {
 		fprintf(stderr,
-			"## error: wdfs does not support to redirect to another host!\n");
+			"## error: wdfs does not support redirecting to another host!\n");
 		free_chars(&current_uri.host, &current_uri.scheme, NULL);
 		return -1;
 	}
@@ -475,14 +500,13 @@ static int wdfs_getattr(const char *localpath, struct stat *stat)
 	if (remotepath == NULL)
 		return -ENOMEM;
 
-
 	/* stat not found in the cache? perform a propfind to get stat! */
 	if (cache_get_item(stat, remotepath)) {
 		int ret = ne_simple_propfind(
 			session, remotepath, NE_DEPTH_ZERO, properties_fileattr,
 			wdfs_getattr_propfind_callback, stat);
 		/* handle the redirect and retry the propfind with the new target */
-		if (wdfs.redirect == true && ret == NE_REDIRECT) {
+		if (ret == NE_REDIRECT && wdfs.redirect == true) {
 			if (handle_redirect(&remotepath))
 				return -ENOENT;
 			ret = ne_simple_propfind(
@@ -633,7 +657,7 @@ static int wdfs_readdir(
 		session, item_data.remotepath, NE_DEPTH_ONE,
 		properties_fileattr, wdfs_readdir_propfind_callback, &item_data);
 	/* handle the redirect and retry the propfind with the redirect target */
-	if (wdfs.redirect == true && ret == NE_REDIRECT) {
+	if (ret == NE_REDIRECT && wdfs.redirect == true) {
 		if (handle_redirect(&item_data.remotepath))
 			return -ENOENT;
 		ret = ne_simple_propfind(
@@ -678,7 +702,6 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 	if (file->fh == -1)
 		return -EIO;
 
-
 	char *remotepath;
 
 	if (wdfs.svn_mode == true && g_str_has_prefix(localpath, svn_basedir))
@@ -690,7 +713,6 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 		FREE(file);
 		return -ENOMEM;
 	}
-
 
 	/* try to lock, if locking is enabled and file is not below svn_basedir. */
 	if (wdfs.locking_mode != NO_LOCK && 
@@ -1071,20 +1093,26 @@ static int wdfs_unlink(const char *localpath)
 		}
 	}
 
-	if (ne_delete(session, remotepath)) {
-		FREE(remotepath);
-		/* return a more specific error message in case of permission problems */
-		if (!strcmp(ne_get_error(session), "403 Forbidden"))
-			return -EPERM;
-		fprintf(stderr, "## DELETE error: %s\n", ne_get_error(session));
-		return -ENOENT;
+	int ret = ne_delete(session, remotepath);
+	if (ret == NE_REDIRECT && wdfs.redirect == true) {
+		if (handle_redirect(&remotepath))
+			return -ENOENT;
+		ret = ne_delete(session, remotepath);
 	}
 
-	/* this file no longer exists, so remove it also from the cache */
-	cache_delete_item(remotepath);
+	/* file successfully deleted! remove it also from the cache. */
+	if (ret == 0) {
+		cache_delete_item(remotepath);
+	/* return more specific error message in case of permission problems */
+	} else if (!strcmp(ne_get_error(session), "403 Forbidden")) {
+		ret = -EPERM;
+	} else {
+		fprintf(stderr, "## DELETE error: %s\n", ne_get_error(session));
+		ret = -EIO;
+	}
 
 	FREE(remotepath);
-	return 0;
+	return ret;
 }
 
 
@@ -1118,16 +1146,24 @@ static int wdfs_rename(const char *localpath_src, const char *localpath_dest)
 		}
 	}
 
-	if (ne_move(session, 1, remotepath_src, remotepath_dest)) {
-		fprintf(stderr, "## MOVE error: %s\n", ne_get_error(session));
-		free_chars(&remotepath_src, &remotepath_dest, NULL);
-		return -ENOENT;
+	int ret = ne_move(session, 1, remotepath_src, remotepath_dest);
+	if (ret == NE_REDIRECT && wdfs.redirect == true) {
+		if (handle_redirect(&remotepath_src))
+			return -ENOENT;
+		ret = ne_move(session, 1, remotepath_src, remotepath_dest);
 	}
 
-	cache_delete_item(remotepath_src);
+	if (ret == 0) {
+		/* rename was successful and the source file no longer exists.
+		 * hence, remove it from the cache. */
+		cache_delete_item(remotepath_src);
+	} else {
+		fprintf(stderr, "## MOVE error: %s\n", ne_get_error(session));
+		ret = -EIO;
+	}
 
 	free_chars(&remotepath_src, &remotepath_dest, NULL);
-	return 0;
+	return ret;
 }
 
 

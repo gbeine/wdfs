@@ -1,6 +1,10 @@
 #ifndef WDFSMAIN_H_
 #define WDFSMAIN_H_
 
+#ifdef HAVE_CONFIG_H
+	#include <config.h>
+#endif
+
 #define FUSE_USE_VERSION 25
 
 #include <fuse.h>
@@ -32,8 +36,10 @@ typedef enum {
 
 /* used as mode for unify_path() */
 enum {
-	ESCAPE,
-	UNESCAPE
+	ESCAPE     = 0x0,
+	UNESCAPE   = 0x1,
+	/* do not remove trailing slashes */
+	LEAVESLASH = 0x2
 };
 
 struct wdfs_conf {
@@ -57,7 +63,7 @@ struct wdfs_conf {
 	/* timeout for a lock in seconds */
 	int locking_timeout;
 	/* address of the webdav resource we are connecting to */
-	char * webdav_resource;
+	char *webdav_resource;
 };
 
 extern struct wdfs_conf wdfs;
@@ -67,18 +73,22 @@ extern const char *project_name;
 extern char *remotepath_basedir;
 
 /* used by wdfs_readdir() and by svn.h/svn.c to add files to requested 
- * directories by using the fuse filler() method. */
+ * directories using fuse's filler() method. */
 struct dir_item {
 	void *buf;
 	fuse_fill_dir_t filler;
 	char *remotepath;
 };
 
-char* remove_ending_slash(const char *in);
+char* remove_ending_slashes(const char *in);
 char* unify_path(const char *in, int mode);
 void free_chars(char **arg, ...);
 
-/* Macro to free things: takes an lvalue and sets it to NULL after freeing. */
+/* takes an lvalue and sets it to NULL after freeing. taken from neon. */
 #define FREE(x) do { if ((x) != NULL) free((x)); (x) = NULL; } while (0)
+
+#ifndef HAVE_STRNDUP
+	char* strndup(const char *s, size_t n);
+#endif
 
 #endif /*WDFSMAIN_H_*/

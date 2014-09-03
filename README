@@ -50,10 +50,11 @@ usage:
 
 mounting wdfs using fstab:
   example entry for the /etc/fstab file:
-  wdfs#http://server  /mnt/wdfs  fuse  users,locking=simple  0 0
+  wdfs#http://server  /mnt/wdfs  fuse  users,locking=simple  0  0
 
-  hint: due to a bug in fuse 2.6.1 it is not possible to add the option
-  username=foo to the option list. this will be fixed with fuse 2.6.2.
+  hint: due to a bug in fuse 2.6.3 and earlier it's not possible to add
+  the option "username=abc" to the option list. this should be fixed with 
+  fuse 2.6.4.
 
 
 wdfs, subversion and apache:
@@ -116,7 +117,7 @@ source code conventions:
     - "** " prefix for cache related messages (no errors)
     - "++ " prefix for locking related messages (no errors)
  - the code is formated with tabs (tab width 4 characters)
- - each line should not be longer as 80 charaters
+ - every line should not be longer than 80 characters
 
 
 acknowledgements:
@@ -124,4 +125,6 @@ acknowledgements:
   of wdfs. miklos szeredi for developing fuse and being a great maintainer.
   the members of the fuse-devel mailing list for helping me and everybody 
   who is contributing to wdfs. thanks!
+
+
 

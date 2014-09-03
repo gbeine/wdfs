@@ -1,8 +1,10 @@
-AC_INIT(wdfs, 1.4.0, [noedler@web.de])
+AC_INIT(wdfs, 1.4.1, [noedler@web.de])
 AM_INIT_AUTOMAKE
 AM_CONFIG_HEADER(src/config.h)
 
 AC_CHECK_HEADERS([pthread.h])
+# defines HAVE_STRNDUP if strndup() is available
+AC_CHECK_FUNCS([strndup])
 
 AC_PROG_CC
 export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH

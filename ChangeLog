@@ -1,3 +1,17 @@
+2007-02-05  noedler
+
+	- wdfs, 1.4.1
+	- updated README
+	- added redirect handling for rename() and unlink(). thanks joseph!
+
+2007-01-25  noedler
+
+	compile fix for mac os x: define strndup() for apple computers
+
+2007-01-24  noedler
+
+	fixed mounting a webdav share that redirects (e.g.) from '/foo' to '/foo/'. thanks to joseph dunn for the patch.
+
 2007-01-19  noedler
 
 	wdfs, 1.4.0
