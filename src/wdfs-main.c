@@ -250,11 +250,36 @@ char* unify_path(const char *path_in, int mode)
 	assert(path_in);
 	char *path_tmp, *path_out = NULL;
 
+	path_tmp = strdup(path_in);
+	if (path_tmp == NULL)
+		return NULL;
+
+	/* some servers send the complete URI not only the path.
+	 * hence remove the server part and use the path only.
+	 * example1:  before: "https://server.com/path/to/hell/"
+	 *            after:  "/path/to/hell/"
+	 * example2:  before: "http://server.com"
+	 *            after:  ""                    */
+	if (g_str_has_prefix(path_tmp, "http")) {
+		char *tmp0 = strdup(path_in);
+		FREE(path_tmp);
+		/* jump to the 1st '/' of http[s]:// */
+		char *tmp1 = strchr(tmp0, '/');
+		/* jump behind '//' and get the next '/'. voila: the path! */
+		char *tmp2 = strchr(tmp1 + 2, '/');
+
+		if (tmp2 == NULL)
+			path_tmp = strdup("");
+		else
+			path_tmp = strdup(tmp2);
+
+		FREE(tmp0);
+	}
+
 	if (mode & LEAVESLASH) {
-		path_tmp = strdup(path_in);
 		mode &= ~LEAVESLASH;
 	} else {
-		path_tmp = remove_ending_slashes(path_in);
+		path_tmp = remove_ending_slashes(path_tmp);
 	}
 	
 	if (path_tmp == NULL)
@@ -308,7 +333,8 @@ static void print_debug_infos(const char *method, const char *parameter)
 {
 	assert(method);
 	fprintf(stderr, ">> %s(%s)\n", method, parameter);
-	char *useragent = ne_concat(project_name, " ", method, NULL);
+	char *useragent = 
+		ne_concat(project_name, " ", method, "(", parameter, ")", NULL);
 	ne_set_useragent(session, useragent);
 	FREE(useragent);
 }
@@ -321,7 +347,7 @@ static char* get_remotepath(const char *localpath)
 	char *remotepath = ne_concat(remotepath_basedir, localpath, NULL);
 	if (remotepath == NULL)
 		return NULL;
-	char *remotepath2 = unify_path(remotepath, ESCAPE);
+	char *remotepath2 = unify_path(remotepath, ESCAPE | LEAVESLASH);
 	FREE(remotepath);
 	if (remotepath2 == NULL)
 		return NULL;
@@ -373,8 +399,8 @@ static void set_stat(struct stat* stat, const ne_prop_result_set *results)
 			stat->st_size = 0;
 	}
 
-	stat->st_nlink	= 1;
-	stat->st_atime	= time(NULL);
+	stat->st_nlink = 1;
+	stat->st_atime = time(NULL);
 
 	if (lastmodified != NULL)
 		stat->st_mtime = ne_rfc1123_parse(lastmodified);
@@ -555,28 +581,6 @@ static void wdfs_readdir_propfind_callback(
 		free_chars(&remotepath, &remotepath1, &remotepath2, NULL);
 		fprintf(stderr, "## fatal error: unify_path() returned NULL\n");
 		return;
-	}
-
-	/* some servers send the complete URI in 'char *remotepath' not only the 
-	 * path. so we remove the server part and use only the path.
-	 * example1:  before: "https://server.com/path/to/hell/"
-	 *            after:  "/path/to/hell/"
-	 * example2:  before: "http://server.com"
-	 *            after:  ""                    */
-	if (g_str_has_prefix(remotepath1, "http")) {
-		char *tmp0 = strdup(remotepath1);
-		FREE(remotepath1);
-		/* jump to the 1st '/' of http[s]:// */
-		char *tmp1 = strchr(tmp0, '/');
-		/* jump behind the two '//' and get the next '/'. voila: the path! */
-		char *tmp2 = strchr(tmp1 + 2, '/');
-
-		if (tmp2 == NULL)
-			remotepath1 = strdup("");
-		else
-			remotepath1 = strdup(tmp2);
-
-		FREE(tmp0);
 	}
 
 	/* don't add this directory to itself */
@@ -1268,7 +1272,7 @@ static struct fuse_operations wdfs_operations = {
 static void print_help()
 {
 	fprintf(stderr,
-"usage: %s http[s]://server[/directory/] mountpoint [options]\n\n"
+"usage: %s http[s]://server[:port][/directory/] mountpoint [options]\n\n"
 "wdfs options:\n"
 "    -v, --version          show version of wdfs\n"
 "    -vv, --all-versions    show versions of wdfs, neon and fuse\n"

@@ -1,4 +1,4 @@
-AC_INIT(wdfs, 1.4.1, [noedler@web.de])
+AC_INIT(wdfs, 1.4.2, [noedler@web.de])
 AM_INIT_AUTOMAKE
 AM_CONFIG_HEADER(src/config.h)
 
