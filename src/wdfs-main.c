@@ -532,8 +532,11 @@ static int wdfs_readdir(
 		return -ENOENT;
 	}
 
-	filler(buf, ".", NULL, 0);
-	filler(buf, "..", NULL, 0);
+	struct stat st;
+	memset(&st, 0, sizeof(st));
+	st.st_mode = S_IFDIR | 0777;
+	filler(buf, ".", &st, 0);
+	filler(buf, "..", &st, 0);
 
 	FREE(item_data.remotepath);
 	return 0;
@@ -550,7 +553,7 @@ static int wdfs_open(const char *localpath, struct fuse_file_info *fi)
 		printf(">> %s() by PID %d\n", __func__, fuse_get_context()->pid);
 	}
 
-	assert(localpath && fi);
+	assert(localpath &&  &fi);
 
 	struct open_file *file = g_new0(struct open_file, 1);
 	file->modified = false;
@@ -616,7 +619,7 @@ static int wdfs_read(
 	if (debug_mode == true)
 		print_debug_infos(__func__, localpath);
 
-	assert(localpath && buf && size &&  &fi);
+	assert(localpath && buf &&  &fi);
 
 	struct open_file *file = (struct open_file*)(uintptr_t)fi->fh;
 
@@ -638,7 +641,7 @@ static int wdfs_write(
 	if (debug_mode == true)
 		print_debug_infos(__func__, localpath);
 
-	assert(localpath && buf && size &&  &fi);
+	assert(localpath && buf &&  &fi);
 
 	/* data below svn_basedir is read-only */
 	if (svn_mode == true && g_str_has_prefix(localpath, svn_basedir))
@@ -730,7 +733,7 @@ static int wdfs_truncate(const char *localpath, off_t size)
 		printf(">> truncate() at offset %li\n", (long int)size);
 	}
 
-	assert(localpath &&  &size);
+	assert(localpath);
 
 	/* data below svn_basedir is read-only */
 	if (svn_mode == true && g_str_has_prefix(localpath, svn_basedir))
@@ -815,7 +818,7 @@ static int wdfs_ftruncate(
 	if (debug_mode == true)
 		print_debug_infos(__func__, localpath);
 
-	assert(localpath && size && &fi);
+	assert(localpath &&  &fi);
 
 	/* data below svn_basedir is read-only */
 	if (svn_mode == true && g_str_has_prefix(localpath, svn_basedir))
@@ -951,8 +954,11 @@ static int wdfs_unlink(const char *localpath)
 	}
 
 	if (ne_delete(session, remotepath)) {
-		printf("## DELETE error: %s\n", ne_get_error(session));
 		FREE(remotepath);
+		/* return a more specific error message in case of permission problems */
+		if (!strcmp(ne_get_error(session), "403 Forbidden"))
+			return -EPERM;
+		fprintf(stderr, "## DELETE error: %s\n", ne_get_error(session));
 		return -ENOENT;
 	}
 
