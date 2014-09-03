@@ -2,9 +2,9 @@
  *  this file is part of wdfs --> http://noedler.de/projekte/wdfs/
  *
  *  wdfs is a webdav filesystem with special features for accessing subversion
- *  repositories. it is based on fuse v2.3+ and neon v0.24.7+.
+ *  repositories. it is based on fuse v2.5+ and neon v0.24.7+.
  * 
- *  copyright (c) 2005 - 2006 jens m. noedler, noedler@web.de
+ *  copyright (c) 2005 - 2007 jens m. noedler, noedler@web.de
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,7 +27,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <assert.h>
 #include <unistd.h>
 #include <glib.h>
@@ -79,12 +78,6 @@ char *svn_repository_root = NULL;
 /* controls how many directories are put in a single level 2 chunk. editable. */
 static const int svn_revisions_per_level2_directory = 200;
 
-/* svn_mode enables transparent access to all svn revisions in a repository
- * via a virtual directory. "true" enables svn_mode, "false" disables svn_mode.
- * don't edit here! it can be changed via parameter "-S" passed to wdfs. */
-bool_t svn_mode = false;
-
-
 /* webdav properties used to get the latest svn revision */
 static const ne_propname property_checked_in[] = {
 	{ "DAV:", "checked-in"},
@@ -131,14 +124,15 @@ static void svn_get_latest_revision_callback(
 				token = strsep(&result, delimiters);
 				if (token != NULL) {
 					/* remove the last char; e.g. "1234<" to "1234" */
-					latest_revision_string = strndup(token, strlen(token)-1);
+					latest_revision_string = strndup(token, strlen(token) - 1);
 				}
 			}
 		}
 	} while (token != NULL );
 
-	if (debug_mode == true)
-		printf(">> SVN latest revision _string_: %s\n", latest_revision_string);
+	if (wdfs.debug == true)
+		fprintf(stderr,
+			">> SVN latest revision _string_: %s\n", latest_revision_string);
 
 	/* string to integer conversion */
 	*latest_revision = atoi(latest_revision_string);
@@ -158,7 +152,7 @@ static int svn_get_latest_revision()
 	ne_propfind_destroy(pfh);
 	FREE(uri);
 	if (ret != NE_OK) {
-		printf("## ne_propfind_named() error\n");
+		fprintf(stderr, "## ne_propfind_named() error\n");
 		return -1;
 	}
 	return latest_revision;
@@ -223,7 +217,8 @@ static void svn_set_repository_root_callback(
 /* set the root path of the mounted repository. this path might differ from the
  * mounted uri if a subdir of the repository is mounted. return 0 on success or
  * -1 on error. */
-int svn_set_repository_root() {
+int svn_set_repository_root()
+{
 	/* if remotepath_basedir is empty set svn_repository_root to "/" and quit */
 	if (!strcmp(remotepath_basedir, "")) {
 		svn_repository_root = strdup("/");
@@ -236,13 +231,14 @@ int svn_set_repository_root() {
 		&svn_set_repository_root_callback, NULL);
 	ne_propfind_destroy(pfh);
 	if (ret != NE_OK) {
-		printf("## ne_propfind_named() error\n");
+		fprintf(stderr, "## ne_propfind_named() error\n");
 		return -1;
 	}
 	return 0;
 }
 
-void svn_free_repository_root() {
+void svn_free_repository_root()
+{
 	FREE(svn_repository_root);
 }
 
@@ -282,7 +278,7 @@ struct stat svn_get_static_dir_stat()
 	stat.st_size	= 4096;
 	stat.st_nlink	= 1;
 	stat.st_atime	= stat.st_mtime = stat.st_ctime = time(NULL);
-	stat.st_blocks	= (stat.st_size+511)/512;
+	stat.st_blocks	= (stat.st_size + 511) / 512;
 	stat.st_mode	&= ~umask(0);
 	stat.st_uid		= getuid();
 	stat.st_gid		= getgid();
@@ -312,7 +308,7 @@ void svn_add_level1_directories(struct dir_item *item_data)
 					sprintf(int2string->str, "%d", i + rest );
 				else
 					sprintf(int2string->str, "%d", 
-						i + (svn_revisions_per_level2_directory-1) );
+						i + (svn_revisions_per_level2_directory - 1) );
 				g_string_append(directory_name, int2string->str);
 				item_data->filler(item_data->buf, directory_name->str, NULL, 0);
 				g_string_free(directory_name, TRUE);
@@ -320,13 +316,14 @@ void svn_add_level1_directories(struct dir_item *item_data)
 		}
 		g_string_free(int2string, TRUE);
 	} else {
-		printf("## Error: Could not get latest revision from SVN.\n");
+		fprintf(stderr, "## Error: Could not get latest revision from SVN.\n");
 	}
 }
 
 
 /* sets the stat for a level1 directory and returns 0 (success) or 1 (error). */
-int svn_get_level1_stat(struct stat *stat, const char *localpath) {
+int svn_get_level1_stat(struct stat *stat, const char *localpath)
+{
 	assert(stat && localpath);
 
 	if (svn_directory_depth(localpath) == 2) {

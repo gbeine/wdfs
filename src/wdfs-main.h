@@ -1,21 +1,18 @@
 #ifndef WDFSMAIN_H_
 #define WDFSMAIN_H_
 
-
 #define FUSE_USE_VERSION 25
-
 
 #include <fuse.h>
 #include <ne_basic.h>
 
-
 /* build the neon version, which is not directly exported by the neon library */
 #if defined(NE_FEATURE_TS_SSL)	/* true for neon 0.26+  */
-  #define NEON_VERSION 26
+	#define NEON_VERSION 26
 #elif defined(NE_FEATURE_SSL)	/* true for neon 0.25+  */
-  #define NEON_VERSION 25
+	#define NEON_VERSION 25
 #else							/* neon 0.24 is the minimal requirement */
-  #define NEON_VERSION 24
+	#define NEON_VERSION 24
 #endif
 /* 	it's also possible to replace the above with the following: 
 	(file configure.ac, after the PKG_CHECK_MODULES call)
@@ -28,19 +25,46 @@
 	esac
 */
 
-
 typedef enum {
 	true 	= 1,
 	false 	= 0
 } bool_t;
 
+/* used as mode for unify_path() */
+enum {
+	ESCAPE,
+	UNESCAPE
+};
+
+struct wdfs_conf {
+	/* the name of the wdfs executable */
+	char *program_name;
+	/* if set to "true" wdfs specific debug output is generated */
+	bool_t debug;
+	/* if set to "true" every certificate is accepted without asking the user */
+	bool_t accept_certificate;
+	/* username of the webdav resource */
+	char *username;
+	/* password of the webdav resource */
+	char *password;
+	/* if set to "true" enables http redirect support */
+	bool_t redirect;
+	/* if set to "true" enables transparent access to all svn revisions in
+	 * a repository thru a virtual directory. */
+	bool_t svn_mode;
+	/* locking mode of files */
+	int locking_mode;
+	/* timeout for a lock in seconds */
+	int locking_timeout;
+	/* address of the webdav resource we are connecting to */
+	char * webdav_resource;
+};
+
+extern struct wdfs_conf wdfs;
 
 /* look at wdfs-main.c for comments on these extern variables */
-extern bool_t debug_mode;
-extern bool_t accept_certificate;
 extern const char *project_name;
 extern char *remotepath_basedir;
-
 
 /* used by wdfs_readdir() and by svn.h/svn.c to add files to requested 
  * directories by using the fuse filler() method. */
@@ -50,13 +74,11 @@ struct dir_item {
 	char *remotepath;
 };
 
-
 char* remove_ending_slash(const char *in);
+char* unify_path(const char *in, int mode);
 void free_chars(char **arg, ...);
-
 
 /* Macro to free things: takes an lvalue and sets it to NULL after freeing. */
 #define FREE(x) do { if ((x) != NULL) free((x)); (x) = NULL; } while (0)
-
 
 #endif /*WDFSMAIN_H_*/

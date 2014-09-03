@@ -4,7 +4,6 @@
 #include "wdfs-main.h"
 
 /* look at svn.c for comments on these extern variables */
-extern bool_t svn_mode;
 extern const char *svn_basedir;
 
 int svn_set_repository_root();

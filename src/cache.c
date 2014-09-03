@@ -2,9 +2,9 @@
  *  this file is part of wdfs --> http://noedler.de/projekte/wdfs/
  *
  *  wdfs is a webdav filesystem with special features for accessing subversion
- *  repositories. it is based on fuse v2.3+ and neon v0.24.7+.
+ *  repositories. it is based on fuse v2.5+ and neon v0.24.7+.
  * 
- *  copyright (c) 2005 - 2006 jens m. noedler, noedler@web.de
+ *  copyright (c) 2005 - 2007 jens m. noedler, noedler@web.de
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,7 +27,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <assert.h>
 #include <glib.h>
 #include <pthread.h>
@@ -52,7 +51,7 @@
 
 
 /* lifetime of a cache item in seconds. this value can be edit here. */
-#define CACHE_ITEM_TIMEOUT 20
+const size_t cache_item_lifetime = 20;
 
 /* initalize this mutex, which is used to prevent data 
  * inconsistencies due to race conditions. */
@@ -92,9 +91,10 @@ static int cache_control_thread_callback(void *key, void *value, void *userdata)
 {
 	struct cache_item *item = (struct cache_item *)value;
 	if (cache_item_timed_out(item->timeout)) {
-		if (debug_mode == true) {
-			printf("** cache control thread: ");
-			printf("item has timed out and is removed '%s'\n", (char*)key);
+		if (wdfs.debug == true) {
+			fprintf(stderr,
+				"** cache control thread: "
+				"item has timed out and is removed '%s'\n", (char*)key);
 		}
 		/* remove this item */
 		return 1;
@@ -116,7 +116,7 @@ static void* cache_control_thread(void *unused)
 	 * cansel state is PTHREAD_CANCEL_ENABLE */
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	while (1) {
-		sleep(CACHE_ITEM_TIMEOUT);
+		sleep(cache_item_lifetime);
 		/* do not allow cancling this thread while doing it's work */
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 		/* to avoid conflict with cache_delete_item() lock */
@@ -147,8 +147,9 @@ void cache_initialize()
  * the hash table. */
 void cache_destroy()
 {
-	if (debug_mode == true)
-		printf("** destroying %d cache items\n", g_hash_table_size(cache));
+	if (wdfs.debug == true)
+		fprintf(stderr,
+			"** destroying %d cache items\n", g_hash_table_size(cache));
 	/* exit cache control thread */
 	pthread_cancel(cache_control_thread_id);
 	pthread_join(cache_control_thread_id, NULL);
@@ -165,21 +166,24 @@ void cache_add_item(struct stat *stat, const char *remotepath)
 {
 	assert(remotepath && stat);
 
-	/* generalize string by removing the ending slash */
-	char *remotepath2 = remove_ending_slash(remotepath);
+	char *remotepath2 = unify_path(remotepath, UNESCAPE);
+	if (remotepath2 == NULL) {
+		fprintf(stderr, "## fatal error: unify_path() returned NULL\n");
+		return;
+	}
 
 	/* get the new cache item and set it's values */
 	struct cache_item *item = g_new0(struct cache_item, 1);
 	item->stat = *stat;
-	item->timeout = time(NULL) + CACHE_ITEM_TIMEOUT;
+	item->timeout = time(NULL) + cache_item_lifetime;
 
 	/* to avoid conflict with cache_control_thread() lock */
 	pthread_mutex_lock(&cache_mutex);
 	g_hash_table_insert(cache, strdup(remotepath2), item);
 	pthread_mutex_unlock(&cache_mutex);
 
-	if (debug_mode == true)
-		printf("** added cache item for '%s'\n", remotepath2);
+	if (wdfs.debug == true)
+		fprintf(stderr, "** added cache item for '%s'\n", remotepath2);
 	FREE(remotepath2);
 }
 
@@ -189,8 +193,11 @@ void cache_delete_item(const char *remotepath)
 {
 	assert(remotepath);
 
-	/* generalize string by removing the ending slash */
-	char *remotepath2 = remove_ending_slash(remotepath);
+	char *remotepath2 = unify_path(remotepath, UNESCAPE);
+	if (remotepath2 == NULL) {
+		fprintf(stderr, "## fatal error: unify_path() returned NULL\n");
+		return;
+	}
 
 	/* to avoid conflict with cache_control_thread() lock */
 	pthread_mutex_lock(&cache_mutex);
@@ -198,8 +205,8 @@ void cache_delete_item(const char *remotepath)
 		(struct cache_item *)g_hash_table_lookup(cache, remotepath2);
 	if (item != NULL) {
 		g_hash_table_remove(cache, remotepath2);
-		if (debug_mode == true)
-			printf("** removed cache item for '%s'\n", remotepath2);
+		if (wdfs.debug == true)
+			fprintf(stderr, "** removed cache item for '%s'\n", remotepath2);
 	}
 	pthread_mutex_unlock(&cache_mutex);
 	FREE(remotepath2);
@@ -214,12 +221,9 @@ int cache_get_item(struct stat *stat, const char *remotepath)
 	int ret = -1;
 	assert(remotepath && stat);
 
-	/* generalize the path by removing an ending slash and unescaping it */
-	char *remotepath_tmp = remove_ending_slash(remotepath);
-	char *remotepath2 = ne_path_unescape(remotepath_tmp);
-	FREE(remotepath_tmp);
+	char *remotepath2 = unify_path(remotepath, UNESCAPE);
 	if (remotepath2 == NULL) {
-		printf("## ne_path_unescape() error in %s()!\n", __func__);
+		fprintf(stderr, "## error: unify_path() returned NULL\n");
 		return -1;
 	}
 
@@ -233,18 +237,18 @@ int cache_get_item(struct stat *stat, const char *remotepath)
 		if (!cache_item_timed_out(item->timeout)) {
 			*stat = item->stat;
 			ret = 0;
-			if (debug_mode == true)
-				printf("** cache hit for '%s'\n", remotepath2);
+			if (wdfs.debug == true)
+				fprintf(stderr, "** cache hit for '%s'\n", remotepath2);
 		/* if this cache item has timed out, remove it */
 		} else {
-			if (debug_mode == true)
-				printf("** cache item timed out '%s'\n", remotepath2);
+			if (wdfs.debug == true)
+				fprintf(stderr, "** cache item timed out '%s'\n", remotepath2);
 			cache_delete_item(remotepath2);
 		}
 	} else {
 		pthread_mutex_unlock(&cache_mutex);
-		if (debug_mode == true)
-			printf("** <no> cache hit for '%s'\n", remotepath2);
+		if (wdfs.debug == true)
+			fprintf(stderr, "** <no> cache hit for '%s'\n", remotepath2);
 	}
 	FREE(remotepath2);
 	return ret;
